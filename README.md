@@ -431,6 +431,13 @@ TSCH tespit edilememesi üzerine kod mimarisi incelendiğinde, firmware'in MAC k
 ### Contiki network API kullanımı
 Sistemin uygulama katmanı ile ağ yığını arasındaki iletişim, Contiki'nin olay güdümlü (Event-driven) ağ API'leri üzerinden sağlanmaktadır. `tcpip_event` global değişkeni ve `tcpip_input` sembolü bunun merkezindedir. Sistemdeki ana süreçler (örneğin `hello_world_process`), yeni bir ağ paketi geldiğinde asenkron olarak tetiklenen `tcpip_event` sinyalini bekler (Process Yield/Wait mantığı) ve ancak paket belleğe düştüğünde ağ API'si üzerinden bu veriyi çekerek işler.
 
+| Analiz Kriteri| Tespit Edilen Sembol / Log (Kanıt) | Sonuç ve Kullanım Amacı |
+|---|---|---|
+| Yönlendirme (Routing) | rpl_process_dio, rpl_process_dao | Ağaç (DAG) yapısında RPL protokolü aktif olarak koşturulmaktadır. |
+| IP ve Adaptasyon | tcpip_process, sicslowpan_init | IPv6 adreslemesi ve 802.15.4 için 6LoWPAN başlık sıkıştırması kullanılmaktadır. |
+| Yayın Tipleri | uip_ds6_route_lookup, "unicast DIS | "Hem doğrudan (Unicast) hem de çoklu/genel (Broadcast/Multicast) yayın aktiftir. |
+| MAC ve Çarpışma | csma_driver, csma_output_packet| TSCH yerine, fırsatçı kanal dinleme mantığına dayanan CSMA MAC protokolü aktiftir. |
+| Bellek Yönetimi | packetbuf_copyfrom, packetbuf_hdralloc | Paketler için dinamik bellek yerine statik packetbuf mimarisi kullanılmaktadır. |
 
 
 ---
