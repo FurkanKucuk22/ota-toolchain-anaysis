@@ -59,25 +59,95 @@ Araçlar:
 
 # 3. Symbol / Function Analizi
 
-* Fonksiyon isimleri
-* Global değişkenler
-* Static değişkenler
-* ISR (interrupt) fonksiyonları
-* Contiki process entry’leri
-* Radio driver fonksiyonları
-* Timer callback’leri
-* Networking callback’leri
-* Sensor handler’ları
-* Kullanılan kütüphaneler
-* Kullanılmayan (dead) fonksiyonlar
-* Function address mapping
+```
+furkann@DESKTOP-CPNNO3A:~/contiki-ng/examples/rpl-udp$ msp430-nm -n new-firmware.z1
+         U gpio_hal_arch_init
+         U spi_arch_has_lock
+00000000 A __IE1
+0000001a A __P3DIR
+...
+00001100 D __data_start
+0000110c D cc2420_process
+00001148 d mac_pan_id
+...
+00001250 B __bss_start
+000014e6 B node_id
+...
+00003100 A __stack
+0000313e T main
+0000353e T port1_isr
+00004034 t process_thread_cc2420_process
+00004436 T cc2420_init
+000079a0 T rpl_process_dio
+...
+0000ffc0 T __vectors_start
+00010000 T _vectors_end
+```
 
-Araçlar:
+* ### **Kullanılan Araç Zinciri ve Analizin Amacı**
 
-* `msp430-nm`
-* `msp430-readelf`
-* `msp430-objdump`
-* `Ve üstteki araçların ARM versiyonları...`
+Bu analiz aşamasında, `new-firmware.z1` imajının içsel davranış modelini, bellek organizasyonunu ve yazılım mimarisini çözümlemek amacıyla MSP430 araç zincirinde bulunan `msp430-nm` ve `msp430-readelf` araçları kullanılmıştır. `nm `aracı ile firmware içindeki sembol tablosu (fonksiyonlar ve değişkenler) adres sırasına göre çözümlenmiş; `readelf -S` aracı ile de ELF formatının bölüm başlıkları (Section Headers) incelenerek yazılımın bellek uzayındaki stratejik yerleşimi doğrulanmıştır.
+
+* ### **Fonksiyon isimleri**
+
+Binary imaj içerisindeki çalıştırılabilir fonksiyonlar Flash bellek (`.text` ve `.far.text` segmentleri) üzerinde yer almaktadır. Sistem, işletim sistemini donanım seviyesinde başlatan `platform_init_stage_one` fonksiyonu ile ayağa kalkmakta ve `netstack_init` gibi fonksiyonlarla ağ hiyerarşisini kurmaktadır. `0x313e` adresinde konumlanan ana giriş noktası (`main`), sistemin temel çalışma döngüsünü başlatmaktadır.
+
+* ### **Global değişkenler**
+
+Sistem genelinden erişilebilen ve durum yönetimi için kritik olan global değişkenler RAM bölgesinde barındırılmaktadır. Analiz sonucunda ağ kimliğini tutan `mac_pan_id` (`0x1148`), düğümün eşsiz adresini belirten `node_id` (`0x14e6`) ve log seviyelerini kontrol eden `curr_log_level_main` (`0x1160`) gibi değişkenler tespit edilmiştir. Bu değişkenlerin **D** (Data) segmentinde yer alması, cihaza enerji verildiğinde bu değerlerin varsayılan başlangıç değerleriyle yüklendiğini göstermektedir.
+
+* ### **Static değişkenler**
+
+Yalnızca tanımlandıkları dosya (scope) içerisinden erişilebilen statik değişkenler, kapsülleme (encapsulation) ve bellek güvenliği amacıyla kullanılmıştır. Ağ paketlerinin zaman damgasını tutan `last_packet_timestamp` (`0x126c`) ve komşu düğümlerin bellek havuzunu yöneten `neighbor_memb` (`0x1118`) yapıları bu kategoriye girmektedir.
+
+* ### **ISR (interrupt) fonksiyonları**
+
+Cihazın dış dünyaya ve asenkron donanım olaylarına gerçek zamanlı tepki verebilmesi için Kesme Yöneticileri (ISR) kullanılmıştır. Sembol tablosunda yer alan `port1_isr` (`0x353e`) GPIO kesmelerini, `watchdog_interrupt` (`0x37d8`) sistem kilitlenmelerini denetleyen zamanlayıcıyı, `cc2420_timerb1_interrupt` (`0x35fe`) ise radyo entegresinden gelen sinyalleri işlemektedir. Bu ISR'ler, `0xffc0` adresinden başlayan donanımsal `.vectors` tablosuna kayıtlıdır.
+
+* ### **Contiki process entry’leri**
+
+İşletim sisteminin olay güdümlü (event-driven) yapısını oluşturan "thread" yapıları `process_thread_` ön ekiyle tespit edilmiştir. `process_thread_tcpip_process, process_thread_sensors_process ve process_thread_hello_world_process` sembolleri; firmware'in sensör okuması, ağ trafiği yönetimi ve ana uygulama görevlerini eşzamanlı (cooperative multitasking) bir yapı içerisinde yürüttüğünü kanıtlamaktadır.
+
+* ### **Radio driver fonksiyonları**
+
+Cihazın fiziksel haberleşme (PHY/MAC) katmanını yöneten radyo sürücüleri incelendiğinde, cihazın Texas Instruments CC2420 (2.4 GHz 802.15.4) çipini kullandığı saptanmıştır. `cc2420_init, cc2420_transmit` ve iletişim gücünün enerji verimliliği için dinamik ayarlanmasına olanak tanıyan `cc2420_set_txpower` fonksiyonları sürücü katmanının temelini oluşturmaktadır.
+
+* ### **Timer callback’leri**
+
+Sistemin görev zamanlaması ve asenkron beklemeler için Contiki'nin zamanlayıcı (Timer) kütüphanelerine yoğun biçimde başvurduğu görülmüştür. `etimer_expired, ctimer_set` ve donanım seviyesinde çalışan `rtimer_run_next` fonksiyonları; periyodik sensör okumalarının ve ağ beacon'larının (sinyallerinin) zamanında iletilmesini sağlamaktadır.
+
+* ### **Networking callback’leri**
+
+Ağ yığını (Network Stack) analiz edildiğinde, cihazın IPv6 ve RPL tabanlı bir yönlendirme şeması koşturduğu netleşmiştir. `uip_icmp6_input` IPv6 ICMP mesajlarını işlerken; rpl_process_dio, `rpl_process_dao` ve `rpl_dag_root_start` fonksiyonları cihazın ağaç topolojisinde (DAG) yönlendirme metrikleri hesapladığını ve bir yönlendirici (router) profiline sahip olduğunu göstermektedir.
+
+* ### **Sensor handler’ları**
+
+Düğümün çevreyle etkileşimini sağlayan donanım sensörlerine ait okuma rutinleri tespit edilmiştir. `tmp102_read_temp_x100` sembolü ortam sıcaklık sensörünün, `accm_read_axis` sembolü ise ADXL345 dijital ivmeölçerinin entegre edildiğini ve sistem tarafından veri toplamak amacıyla aktif olarak kullanıldığını doğrulamaktadır.
+
+* ### **Kullanılan kütüphaneler**
+
+Cihaz belleğinde standart C kütüphanelerinin (örneğin; bellek kopyalama için `memcpy`, dizgi formatlama için `printf/snprintf`) yanı sıra Contiki'ye özgü çekirdek kütüphaneler yer almaktadır. Özellikle RAM bloklarının yönetimi için `memb_init` ve dinamik bağlı listeler için `list_add` kütüphanelerinin yoğun kullanımı, sistemin kısıtlı bellek (RAM) kaynaklarını dinamik bir şekilde yönettiğine işaret etmektedir.
+
+* ### **Kullanılmayan (dead) fonksiyonlar**
+
+Geliştirme araç zincirinde, kod bloğunda bulunmasına rağmen programın hiçbir yerinde çağırılmayan (dead code) fonksiyonların analizi için ELF Section başlıkları (`readelf -S`) ve Sembol Tablosu incelenmiştir. Çıktıda `.text.fonksiyon_adi` şeklinde izole edilmiş fonksiyon blokları yerine, boyutları oldukça büyük tekil `.text` (0x976e) ve `.far.text` (0x4a78) blokları gözlemlenmiştir. Bununla birlikte, dosyada `.debug_info`, `.debug_line` gibi hata ayıklama (debug) sembollerinin tam boyutuyla tutulduğu (toplamda ~0x4000 byte civarı) görülmektedir. ELF dosyasının yapısı değerlendirildiğinde, bağlayıcı (Linker) aşamasında kullanılmayan kodların sistemden tamamen atılması işleminin (Dead Code Elimination / `--gc-sections`) bu binary dosyası oluşturulurken izole bir iz bırakmadığı anlaşılmıştır. Dolayısıyla, son ELF dosyasında "atılmış" fonksiyonların listesi, derleyici tarafından sessizce temizlendiği için doğrudan görünmemektedir.
+
+
+* ### **Function Address Mapping (Fonksiyon Adres Haritalaması)**
+
+`readelf -S` aracı ile elde edilen ELF Section başlıkları ve `nm` çıktıları birleştirilerek, yazılımın hedef cihazdaki nihai bellek haritası (Memory Map) aşağıda özetlenmiştir. Bu adres haritalaması, cihazın çalışma zamanında (runtime) vereceği olası "Crash (Çökme)" loglarındaki hata adreslerini çözümlerken referans alınacak ana yapı niteliğindedir.
+
+
+| Bellek Bölgesi | Başlangıç Adresi | Bitiş Adresi | İçerik Tipi | Örnek Semboller |
+|---|---|---|---|---|
+| Donanım Register | `0x0000` | `0x10FF` | Mutlak Adresler | `__P1IN, __ADC12CTL0` |
+| RAM (Data & BSS) | `0x1100` | `0x2898` | Değişkenler | `mac_pan_id, node_id` |
+| Flash (Text/Kod) | `0x3100` | `0x14A78` | Çalıştırılabilir Kod | `main, cc2420_init` |
+| Kesme Vektörleri | `0xFFC0` | `0x10000` | ISR (Interrupts) | `port1_isr, watchdog_interrupt` |
+
+
+(Not: Temel çalıştırılabilir kodlar `.text` bölümünde `0x3100` adresinden başlarken, genişletilmiş kod blokları `.far.text` bölümünde `0x10000` adresinde saklanmaktadır. Salt okunur sabitler ise `0xc870` adresine yerleştirilmiştir.)
+
 
 ---
 
