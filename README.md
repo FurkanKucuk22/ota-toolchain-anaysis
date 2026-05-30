@@ -205,7 +205,7 @@ Geliştirme ortamına ve derleyiciye (Compiler) ait son derece kritik geliştiri
 
 | Kategori | Tespit Edilen Örnek Metin (String) |	Yorum / Teknik Anlamı |
 |---|---|---|
-| Boot & İşletim Sistemi | Starting Contiki-NG-release... |	Sistemin başlangıç mesajı ve kullanılan OS versiyonu. |
+| Boot & İşletim Sistemi | `Starting Contiki-NG-release...` |	Sistemin başlangıç mesajı ve kullanılan OS versiyonu. |
 | Fiziksel Ağ (MAC) | `- 802.15.4 PANID: 0x%04x` |	Cihazın `IEEE 802.15.4` kablosuz standardında çalıştığı kanıtlanmıştır. |
 | Yönlendirme & IPv6 | `Tentative link-local IPv6 address: created a new RPL DAG` |	Cihazın IPv6 kullandığı ve RPL yönlendirme ağacı (DAG) oluşturabildiği görülmüştür. |
 | Sensör & Donanım | `ADXL345 sensor CC2420 driver` |	İvmeölçer sensörünün ve radyo çipinin sürücü metinleridir. |
