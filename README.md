@@ -382,27 +382,56 @@ Araçlar:
 
 # 9. Networking Analizi
 
-* Unicast kullanım tespiti
-* Broadcast kullanım tespiti
-* Multicast tespiti
-* IPv6 stack kullanımı
-* RPL routing analizi
-* TSCH scheduler çağrıları
-* MAC layer interaction
-* Packet buffer kullanımı
-* Neighbor table erişimi
-* Radio transmission akışı
-* Retransmission logic
-* ACK mekanizmaları
-* CSMA/TSCH farkları
-* Contiki network API kullanımı
+Bu bölümde, `new-firmware.z1` imajının ağ üzerindeki rolü, paket yönlendirme stratejileri ve MAC/Fiziksel katman etkileşimleri detaylı olarak incelenmiştir. Analizlerde `msp430-nm` ve `msp430-strings` araçlarından elde edilen veriler referans alınmıştır.
 
-Araçlar:
+### Unicast kullanım tespiti
+Ağdaki iki düğüm (node) arasında noktadan noktaya doğrudan iletişimi sağlayan Unicast haberleşme yapısı, firmware içerisinde aktif olarak kullanılmaktadır. `msp430-nm` çıktılarında tespit edilen `uip_ds6_route_lookup` ve `uip_ds6_route_nexthop` sembolleri, gelen paketlerin hedef IP adresine göre yönlendirme tablosunda eşleştirildiğini göstermektedir. Ayrıca `msp430-strings` çıktısındaki `"unicast DIS, reply to sender"` hata ayıklama mesajı, sistemin RPL protokolü kapsamında hedefi belli olan (unicast) mesajlar üretebildiğini kesin olarak ispatlamaktadır.
 
-* `msp430-nm`
-* `msp430-objdump`
-* `msp430-strings`
-* `Ve üstteki araçların ARM versiyonları...`
+### Broadcast kullanım tespiti
+Yönlendirme ağacı oluşturulurken (DAG) veya komşu keşif (Neighbor Discovery) aşamalarında ağdaki tüm düğümlere aynı anda ulaşmak için Broadcast mekanizması kullanılmaktadır. Sembol tablosunda açıkça görülen `frame802154_is_broadcast_addr` ve `packetbuf_holds_broadcast` fonksiyonları, MAC katmanında paketin hedef adresinin `0xFFFF` (`802.15.4` broadcast adresi) olup olmadığını denetler. Cihaz ağa ilk katıldığında yönlendirici bulmak amacıyla bu mekanizmaya sıklıkla başvurur.
+
+### Multicast tespiti
+IPv6 ağlarının bel kemiği olan Multicast (çoklu yayın) mekanizması, özellikle RPL protokolündeki ağ topolojisi mesajları için bu firmware'de aktif kılınmıştır. Sembol listesindeki `rpl_multicast_addr` değişkeni ve `msp430-strings` analizinde karşımıza çıkan `"invalid DAG MC"` ve `"sending a %s-DIO with rank %u to"` logları, cihazın spesifik bir gruba (Örneğin tüm RPL router'larına) çoklu yayın yapabildiğini göstermektedir.
+
+### IPv6 stack kullanımı
+Firmware, kısıtlı IoT cihazları için optimize edilmiş `Contiki uIP` (Micro IP) ve `uIPv6` yığınını barındırmaktadır. `uip_process`, `tcpip_process`, `uip_icmp6_input` ve `uip_ds6_init` sembolleri bu durumun temel kanıtlarıdır. Cihaz, IPv6 adreslemesini kullanırken, `802.15.4` radyo paketlerinin dar boyutuna (127 byte MTU) sığabilmek için `sicslowpan_init` sembolü ile tanımlanan **6LoWPAN** sıkıştırma (Header Compression) mimarisini koşturmaktadır. `msp430-strings` loglarındaki `"Tentative link-local IPv6 address:"` ibaresi cihazın kendi kendine IPv6 adresi atayabildiğini kanıtlar.
+
+### RPL routing analizi
+RPL (Routing Protocol for Low-Power and Lossy Networks), bu cihazın ana yönlendirme stratejisidir. `rpl_dag_root_start`, `rpl_process_dio` (DODAG Information Object) ve `rpl_process_dao` (Destination Advertisement Object) sembolleri, cihazın yönlendirme ağacında (DAG - Directed Acyclic Graph) bir rol üstlendiğini gösterir. Cihaz, çevresindeki düğümlerden DIO mesajları alarak köke (root) olan uzaklığını (Rank) hesaplamakta ve DAO mesajları göndererek kendi varlığını kök düğüme bildirmektedir. Loglardaki `"created a new RPL DAG"` ve `"significant rank update %u->%u"` mesajları RPL mekanizmasının tamamen aktif çalıştığını doğrular.
+
+### TSCH scheduler çağrıları
+Yapılan detaylı sembol tablosu (`msp430-nm`) analizinde, **TSCH** (Time Slotted Channel Hopping) planlayıcısına ait herhangi bir fonksiyon veya sembol (örneğin `tsch_process` veya `tsch_init`) tespit edilememiştir. Bu durum cihazın zaman senkronizasyonlu ve frekans atlamalı bir MAC katmanı kullanmadığını, paket gönderimlerinin slotlara (zaman dilimlerine) bölünmediğini açıkça göstermektedir.
+
+### MAC layer interaction
+Fiziksel katman ile ağ katmanı arasındaki köprüyü kuran MAC etkileşimleri, `802.15.4` standartlarına uygun olarak tasarlanmıştır. `framer_802154_create` ve `framer_802154_parse` sembolleri, IP paketlerine `IEEE 802.15.4` çerçeve başlıklarının (Frame Header) eklendiği ve çözüldüğü noktalardır. Ayrıca mac_sequence_init fonksiyonu ile MAC seviyesinde paketlere sıra numarası (Sequence Number) verilerek tekrar eden (duplicate) paketlerin MAC katmanında hızla reddedilmesi sağlanmıştır.
+
+### Packet buffer kullanımı
+Contiki-NG'nin RAM kısıtları nedeniyle, sistemde paketleri tutmak için devasa kuyruklar yerine ortak bir hafıza bloğu olan packetbuf mimarisi kullanılmıştır. Sembol tablosundaki packetbuf_copyfrom, packetbuf_hdralloc, packetbuf_set_attr ve packetbuf_dataptr gibi fonksiyonlar, radyo çipinden alınan veya uygulamadan radyoya gönderilecek olan verilerin tek bir statik tampon (buffer) üzerinde işlendiğini, başlık (header) ekleme/çıkarma işlemlerinin bu tampon üzerinde yapıldığını ispatlamaktadır.
+
+### Neighbor table erişimi
+IPv6 ve RPL protokollerinin sağlıklı çalışabilmesi için cihazın sinyal menzilindeki diğer düğümleri tanıması gerekir. `uip_ds6_nbr_add`, `uip_ds6_neighbors_init` ve `nbr_table_register` sembolleri komşu tablosu yönetimini ifade eder. Cihazın kısıtlı belleği nedeniyle komşu sayısının bir sınırı vardır; bu durum `msp430-strings` çıktısındaki `"neighbor table full, dropping DIO"` (komşu tablosu dolu, DIO paketi atılıyor) hata logu ile desteklenmektedir.
+
+### Radio transmission akışı
+Bir paketin cihaz içindeki yazılım katmanlarından donanıma aktarılma süreci hiyerarşik bir çağrı silsilesi izler. Analizlere göre yukarıdan aşağıya akış şu şekildedir:
+* Yüksek katman `tcpip_ipv6_output` fonksiyonunu çağırır.
+* Paket MAC katmanına inerek `csma_output_packet` fonksiyonuna iletilir.
+* Donanım seviyesinde radyo sürücüsüne ulaşılarak `cc2420_transmit` ve `cc2420_send` fonksiyonları tetiklenir ve paket anten üzerinden fiziksel olarak ortama yayılır.
+
+### Retransmission logic
+Kablosuz iletişimdeki kayıpları tolere edebilmek için yeniden iletim algoritmaları koda gömülmüştür. Ağ katmanı düzeyinde RPL protokolünün `schedule_dao_retransmission` sembolü kullanılarak hedefine ulaşamayan yönlendirme metriklerinin tekrar gönderilmesi planlanmaktadır. MAC düzeyinde ise CSMA sürücüsü ortamın dolu olması durumunda üstel geri çekilme (exponential backoff) algoritması uygulayarak paketi daha sonra göndermeyi dener.
+
+### ACK mekanizmaları
+Paketlerin hedefine başarıyla ulaşıp ulaşmadığını denetleyen onay mekanizması hem donanımsal hem de yazılımsal olarak konfigüre edilmiştir. Radyo çipi (`CC2420`) sürücüsündeki `set_auto_ack` sembolü, `IEEE 802.15.4` donanımsal ACK (Hardware Acknowledgement) özelliğinin aktifleştirildiğini gösterir. Böylece, hedef cihaz paketi aldığında işlemciyi yormadan doğrudan radyo çipi üzerinden milisaniyeler içinde onay (ACK) sinyali dönebilmektedir.
+
+### CSMA/TSCH farkları
+TSCH tespit edilememesi üzerine kod mimarisi incelendiğinde, firmware'in MAC katmanı olarak CSMA (Carrier-Sense Multiple Access) kullandığı kesinleşmiştir. Sembol tablosundaki `csma_driver`, `csma_output_packet` ve `csma_security_create_frame` değişkenleri bunun doğrudan kanıtıdır.
+
+**Fark Analizi:** TSCH, cihazların yüksek doğruluklu zamanlayıcılarla anlaşıp belirli milisaniyelik dilimlerde uyanarak haberleşmesini sağlarken (deterministik); bu cihazda bulunan CSMA yaklaşımı, radyo kanalının anlık olarak dinlenmesi (Carrier Sense) ve ortam boşsa paketin asenkron olarak iletilmesi prensibine (fırsatçı yaklaşım) dayanır.
+
+### Contiki network API kullanımı
+Sistemin uygulama katmanı ile ağ yığını arasındaki iletişim, Contiki'nin olay güdümlü (Event-driven) ağ API'leri üzerinden sağlanmaktadır. `tcpip_event` global değişkeni ve `tcpip_input` sembolü bunun merkezindedir. Sistemdeki ana süreçler (örneğin `hello_world_process`), yeni bir ağ paketi geldiğinde asenkron olarak tetiklenen `tcpip_event` sinyalini bekler (Process Yield/Wait mantığı) ve ancak paket belleğe düştüğünde ağ API'si üzerinden bu veriyi çekerek işler.
+
+
 
 ---
 
