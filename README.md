@@ -648,23 +648,69 @@ Araçlar:
 
 # 20. Contiki-NG Özel Analizler
 
-* PROCESS_THREAD recovery
-* Protothread expansion
-* Event-driven scheduler analizi
-* etimer/ctimer usage
-* PROCESS_BEGIN/END expansion
-* PROCESS_YIELD flow
-* NETSTACK interaction
-* Packetbuf lifecycle
-* uIP callback chain
-* Rime stack usage
+Bu bölümde, firmware imajının çekirdeğini oluşturan Contiki-NG işletim sisteminin olay güdümlü (event-driven) yapısı, görev yönetimi ve ağ yığını etkileşimleri detaylı olarak analiz edilmiştir.
 
-Araçlar:
+### PROCESS_THREAD recovery
 
-* `msp430-cpp`
-* `msp430-objdump`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
+İşletim sisteminde koşan bağımsız görevlerin (thread) tespiti (recovery) işlemi, `msp430-nm` sembol tablosu üzerinden başarıyla gerçekleştirilmiştir. Contiki mimarisinde her süreç, bellekte özel bir isim uzayı (namespace) ile tutulur. Analizde `process_thread_hello_world_process`, `process_thread_tcpip_process`, `process_thread_sensors_proces`s ve `process_thread_ctimer_process` sembolleri açıkça izole edilmiştir. Bu durum, cihazın tek bir monolitik döngü (`while(1)`) yerine, ağ katmanını, sensör okumalarını ve kullanıcı uygulamasını birbirinden bağımsız iş parçacıkları halinde yürüttüğünü kanıtlamaktadır.
+
+(Not: Protothread makrolarının genişletilmiş (expanded) `switch-case` formlarını doğrudan gözlemleyebilmek için derleme öncesinde kaynak kodlar (.c) üzerinde `msp430-cpp` (C Preprocessor) aracının koşturulması gerekmektedir. Ancak analiz derlenmiş `.z1 `ELF imajı üzerinden yürütüldüğü için bu genişleme süreci disassembly ve sembol adresleri üzerinden reverse-engineering yöntemleriyle doğrulanmıştır.)
+
+### Protothread expansion
+
+Contiki-NG, her bir görev için ayrı bir yığın (stack) belleği ayırmak yerine RAM tasarrufu sağlamak için "Protothread" mimarisini kullanır. Tespit edilen görevler geleneksel işletim sistemlerindeki (örneğin Linux) thread'ler gibi kendi izole RAM alanlarına sahip değildir. Bunun yerine hepsi aynı yığını (stack) paylaşır. Derleme aşamasında (expansion), C dilinde yazılan protothread'ler, her görevin nerede kaldığını hafızada tutan `pt->lc` (Local Continuation) isimli 2 baytlık bir durum değişkenine (state variable) indirgenir. Böylece her thread için yüzlerce bayt RAM harcamak yerine, thread başına sadece birkaç bayt ile görev yönetimi (multitasking) sağlanır.
+
+### Event-driven scheduler analizi
+
+Sistemin görev zamanlayıcısı (Scheduler), geleneksel "Round-Robin" (sürekli sırayla çalıştırma) yöntemi yerine olay güdümlü (Event-Driven) çalışmaktadır. `msp430-nm` tablosunda tespit edilen `process_post`, `process_run` ve `process_poll` fonksiyonları zamanlayıcının kalbini oluşturur. Bir donanım kesmesi (ISR) oluştuğunda veya ağdan bir paket geldiğinde, çekirdeğe `process_post` ile bir olay (event) fırlatılır. Çekirdek, `process_run` döngüsü içerisinde olay kuyruğunu (event queue) tarar ve sadece kendisine olay atanmış (tetiklenmiş) süreçleri uyandırır. Olay beklemeyen süreçler CPU döngüsü tüketmez.
+
+
+### etimer/ctimer usage
+
+Contiki-NG'nin görevleri periyodik olarak uyandırmak için kullandığı iki farklı zamanlayıcı mimarisi kod içinde aktif olarak bulunmuştur:
+* **etimer (Event Timer):** `etimer_set` ve `etimer_expired` sembolleriyle görülür. Belirlenen süre dolduğunda, işletim sistemi zamanlayıcısı üzerinden o etimer'ı kuran sürece bir "Zamanlayıcı Olayı" (Timer Event) göndererek süreci uyandırır.
+* **ctimer (Callback Timer):** `ctimer_set` sembolü ile görülür. Herhangi bir sürece bağlı kalmadan, süre dolduğunda doğrudan bellekteki bir fonksiyonu (callback pointer) çağırır. `process_thread_ctimer_process` sembolü, sistemin arka planda ctimer'ları yönetmek için özel bir süreç ayırdığını kanıtlar.
+
+### PROCESS_BEGIN/END expansion
+
+Contiki-NG'de süreçlerin gövdesini oluşturan `PROCESS_BEGIN()` ve `PROCESS_END()` makroları, C Preprocessor (Ön İşlemci) tarafından arka planda büyük bir durum makinesine (State Machine) çevrilir.
+* `PROCESS_BEGIN()` makrosu aslında görünmez bir `switch (pt->lc) { case 0:` satırını başlatır.
+* `PROCESS_END()` makrosu ise bu switch-case yapısını kapatır, `pt->lc = 0;` atamasını yapar ve süreci sonlandıran `return PT_ENDED;` komutunu işletir. Assembly düzeyinde `process_thread...` fonksiyonlarının incelenmesi, bu switch-case yapısına ait dallanma (jump/branch) komutlarını açıkça doğrulamaktadır.
+
+### PROCESS_YIELD flow
+
+Bir süreç `PROCESS_YIELD()` makrosunu çağırdığında sistemin nasıl tepki verdiği işletim sistemi teorisi açısından kritiktir. Bu makro çağrıldığında:
+* Derleyici o satırın numarasını (veya etiketini) `pt->lc` değişkenine kaydeder.
+* `return PT_YIELDED;` komutuyla süreç o noktada CPU'yu gönüllü olarak terk eder (Yielding).
+* CPU, işletim sistemi zamanlayıcısına geri döner ve sıradaki diğer olayları işler.
+* Bu sürece yeniden bir olay geldiğinde, `PROCESS_BEGIN` altındaki switch bloğu `pt->lc` değerini okur ve fonksiyonu tam olarak `YIELD` edildiği satırdan yeniden başlatır. Bu asenkron yapı, sistemin meşgul bekleme (busy-waiting) yapmasını engeller.
+
+### NETSTACK interaction
+
+İşletim sistemi süreçleri ile donanımsal ağ katmanı arasındaki iletişim `NETSTACK` makroları üzerinden izole edilmiştir. Sembol tablosundaki `netstack_init` ve `tcpip_event` bulguları, ağın süreçlerle nasıl konuştuğunu gösterir. Radyo donanımına bir paket düştüğünde donanım kesmesi (ISR) tetiklenir, bu kesme `tcpip_process'e` bir sinyal (poll) yollar. Ağ yığını paketi işledikten sonra, ilgili kullanıcı uygulamalarına (Örneğin `hello_world_process`) global bir uyarı olan `tcpip_event` sinyalini yollayarak uygulamanın paketi okumasını sağlar.
+
+### Packetbuf lifecycle
+
+RAM kapasitesi kısıtlı olan bu mimaride, her gelen/giden paket için işletim sisteminden dinamik RAM (`malloc/free`) talep edilmez. Bunun yerine "Sıfır Kopya" (Zero-copy) mimarisine yaklaşan statik `packetbuf` yapısı kullanılır. Sembollerde tespit edilen yaşam döngüsü şu şekildedir:
+* **`packetbuf_clear`:** Önceki paketten kalan veriler tampondan silinir.
+* **`packetbuf_copyfrom`:** Yeni gönderilecek veri (payload) bu ortak RAM bloğuna kopyalanır.
+* **`packetbuf_hdralloc`:** Paket MAC ve IP katmanlarından aşağı indikçe, verinin önüne yeni protokol başlıkları için yer açılır. Paket iletildikten sonra aynı tampon bir sonraki işlem için serbest bırakılır.
+
+### uIP callback chain
+
+İşletim sistemindeki ağ durum güncellemeleri, klasik if-else kontrolleri yerine tetikleyici (callback) zincirleriyle yönetilmektedir. Sembol tablosundaki `uip_ds6_link_callback` ve `netstack_process_ip_callbac`k fonksiyonları bu zincirin temel yapıtaşlarıdır. RPL yönlendirme protokolü komşu cihazlardan yeni bir yol (route) bulduğunda veya mevcut bir bağlantı koptuğunda, işletim sistemi bu **"callback"** fonksiyonlarını otomatik olarak çağırarak (chaining) üst katmandaki uygulamaların ağ değişikliklerinden anında haberdar olmasını sağlar.
+
+### Rime stack usage
+
+Yapılan kapsamlı String ve Sembol analizlerinde, Contiki'nin eski ve hafif haberleşme yığını olan **"Rime Stack"** (örneğin `rime_init`, `mesh_open`, `unicast_send`) mekanizmalarına ait hiçbir kanıt bulunamamıştır. Analizler sonucunda, cihazdaki Rime mimarisinin derleyici seviyesinde tamamen devre dışı bırakıldığı, iletişimin bütünüyle modern ve standartlara uygun olan uIP (IPv6) ve 6LoWPAN ağ yığını üzerinden yürütüldüğü kesin olarak raporlanmıştır.
+
+İşletim Sistemi Konsepti | Tespit Edilen Sembol / Kanıt | Teknik İşlev ve Mimari Karşılığı |
+|---|---|---|
+|Protothread (Görevler) | process_thread_hello_world... process_thread_tcpip_process | Süreçlerin izole RAM yığınları yerine, bellek tasarrufu için pt->lc (switch-case) mantığıyla ortak yığında yürütülmesi. | 
+| Olay Güdümlü Zamanlayıcı | process_post, process_run process_poll | Döngüsel (Round-robin) çalıştırma yerine, süreçlerin sadece donanım/ağ olayı (event) geldiğinde uyandırılması.Zaman Yönetimi (Timers)etimer_set, ctimer_setGörevlerin, sistemi kilitlemeden (busy-wait olmadan) olay (etimer) veya geri çağrı (ctimer) ile zamanlanması. | 
+| Ağ Bellek Yönetimi | packetbuf_copyfrom packetbuf_hdralloc | Ağ paketleri için dinamik bellek (malloc/free) yerine, "sıfır kopya" mantığına dayanan statik tampon (packetbuf) kullanımı. |
+| Donanım-Ağ Etkileşimi | tcpip_event, netstack_init | Radyo çipinden gelen kesmelerin işletim sistemine asenkron bir sinyal (tcpip_event) olarak aktarılması süreci. |
+
 
 ---
 
