@@ -214,28 +214,107 @@ Geliştirme ortamına ve derleyiciye (Compiler) ait son derece kritik geliştiri
 
 # 5. Assembly / Instruction Analizi
 
-* Instruction sequence analizi
-* Function prologue/epilogue
-* Register kullanımı
-* Stack frame yapısı
-* ISR akışı
-* Loop yapıları
-* Branch analizi
-* Jump table analizi
-* Function call graph
-* Inline function tespiti
-* Compiler optimization davranışı
-* Delay loop analizi
-* Busy-wait yapıları
-* Context switching
-* Protothread expansion
-* Scheduler davranışı
+```
+furkann@DESKTOP-CPNNO3A:~/contiki-ng/examples/rpl-udp$ msp430-objdump -d new-firmware.z1 | grep -A 20 "<main>:"
+0000313e <main>:
+    313e:       b0 13 e4 6a     calla   #27364          ;0x06ae4
+    3142:       b0 13 3a 45     calla   #17722          ;0x0453a
+    3146:       b0 13 da aa     calla   #43738          ;0x0aada
+    314a:       b0 13 7c 6d     calla   #28028          ;0x06d7c
+    314e:       0e 43           clr     r14             ;
+    3150:       3f 40 3c 11     mov     #4412,  r15     ;#0x113c
+    3154:       b0 13 8e 6e     calla   #28302          ;0x06e8e
+    3158:       b0 13 34 50     calla   #20532          ;0x05034
+    315c:       b1 13 8a 3d     calla   #81290          ;0x13d8a
+    3160:       b0 13 2a 51     calla   #20778          ;0x0512a
+    3164:       b0 13 f2 bf     calla   #49138          ;0x0bff2
+    3168:       b0 13 f6 6a     calla   #27382          ;0x06af6
+    316c:       b0 13 dc 6e     calla   #28380          ;0x06edc
+    3170:       b0 13 c2 68     calla   #26818          ;0x068c2
+    3174:       b0 13 1c 69     calla   #26908          ;0x0691c
+    3178:       b2 90 03 00     cmp     #3,     &0x1160 ;
+    317c:       60 11
+    317e:       0e 38           jl      $+30            ;abs 0x319c
+    3180:       30 12 3a ca     push    #-13766 ;#0xca3a
+    3184:       30 12 3f ca     push    #-13761 ;#0xca3f
+```
+```
+furkann@DESKTOP-CPNNO3A:~/contiki-ng/examples/rpl-udp$ msp430-objdump -d new-firmware.z1 | grep -A 20 "<port1_isr>:"
+0000353e <port1_isr>:
+    353e:       3f 14           pushm.a #4,     r15     ;20-bit words
+    3540:       f2 b0 40 00     bit.b   #64,    &0x0023 ;#0x0040
+    3544:       23 00
+    3546:       15 24           jz      $+44            ;abs 0x3572
+    3548:       e2 b2 23 00     bit.b   #4,     &0x0023 ;r2 As==10
+    354c:       12 20           jnz     $+38            ;abs 0x3572
+    354e:       3f 40 54 12     mov     #4692,  r15     ;#0x1254
+    3552:       b0 13 fc c6     calla   #50940          ;0x0c6fc
+    3556:       0f 93           cmp     #0,     r15     ;r3 As==00
+    3558:       32 24           jz      $+102           ;abs 0x35be
+    355a:       3d 40 20 00     mov     #32,    r13     ;#0x0020
+    355e:       0e 43           clr     r14             ;
+    3560:       3f 40 54 12     mov     #4692,  r15     ;#0x1254
+    3564:       b0 13 e0 c6     calla   #50912          ;0x0c6e0
+    3568:       5f 42 23 00     mov.b   &0x0023,r15     ;0x0023
+    356c:       7f f0 bf ff     and.b   #-65,   r15     ;#0xffbf
+    3570:       18 3c           jmp     $+50            ;abs 0x35a2
+    3572:       5f 42 23 00     mov.b   &0x0023,r15     ;0x0023
+    3576:       4f 93           cmp.b   #0,     r15     ;r3 As==00
+    3578:       1b 34           jge     $+56            ;abs 0x35b0
+```
+### Kullanılan Araç Zinciri ve Analizin Amacı 
+Bu analizde, derlenmiş makine kodunu insan tarafından okunabilir Assembly diline çevirmek (Disassembly) amacıyla `msp430-objdump -d` aracı kullanılmıştır. Analizin temel amacı; fonksiyon çağrı yapılarını, donanım kesme (ISR) rutinlerinin CPU seviyesindeki davranışlarını, derleyici optimizasyonlarını ve işletim sistemine özgü bellek/zamanlayıcı geçişlerini makine komutları düzeyinde incelemektir.
 
-Araçlar:
+### Instruction Sequence ve Function Call Graph Analizi
+Sistemin ana döngüsü olan `main` fonksiyonunun başlangıcı incelendiğinde, programın doğrusal bir akış (sequence) yerine yoğun bir şekilde alt rutinlere (subroutine) dallandığı görülmüştür.
+```
+0000313e <main>:
+    313e:       b0 13 e4 6a     calla   #27364          ;0x06ae4
+    3142:       b0 13 3a 45     calla   #17722          ;0x0453a
+    3146:       b0 13 da aa     calla   #43738          ;0x0aada
+    ...
+```
+Yukarıdaki kesitte art arda gelen `calla` (Call Absolute) komutları, Contiki işletim sisteminin başlatma (boot) hiyerarşisini göstermektedir. İşlemci sırasıyla `0x06ae4` (`platform_init_stage_one`), `0x0453a` (`clock_init`) ve `0x0aada` (`rtimer_init`) gibi alt rutinlere zıplayıp geri dönmektedir. Bu durum, modüler bir **Call Graph** (Çağrı Grafiği) yapısının kanıtıdır.
 
-* `msp430-objdump`
-* `msp430-as`
-* `Ve üstteki araçların ARM versiyonları...`
+### Register Kullanımı ve Function Prologue
+Fonksiyonların başlangıcında, o anki donanım durumunu korumak amacıyla CPU yazmaçlarının (Register) Yığın (Stack) bölgesine yedeklenmesi (Prologue) işlemi gözlemlenmiştir.
+```
+    3180:       30 12 3a ca     push    #-13766 ;#0xca3a
+    3184:       30 12 3f ca     push    #-13761 ;#0xca3f
+```
+`main` fonksiyonu içinde yer alan `push` komutları, fonksiyonun işleyişi sırasında üzerine yazılacak olan Register değerlerini veya yerel değişkenleri Stack uzayına atarak korumaya almaktadır.
+
+###  ISR Akışı ve Context Switching (Bağlam Değişimi)
+Donanımdan gelen bir kesmenin (Örneğin GPIO tetiklemesi) standart bir C fonksiyonundan ne kadar farklı çalıştığı `port1_isr` fonksiyonu üzerinden analiz edilmiştir.
+```
+0000353e <port1_isr>:
+    353e:       3f 14           pushm.a #4,     r15     ;20-bit words
+    3540:       f2 b0 40 00     bit.b   #64,    &0x0023 ;#0x0040
+    ...
+```
+Normal fonksiyonlar tekil `push` komutlarıyla başlarken, ISR'nin `pushm.a #4, r15` (Push Multiple) komutuyla başlaması son derece kritiktir. Kesme geldiğinde CPU o an yaptığı işi aniden bırakmak zorundadır; bu nedenle 
+
+tüm kritik yazmaçlar 20-bit boyutunda topluca yığına kopyalanarak "Bağlam Değişimi" (Context Switching) güvenli bir şekilde gerçekleştirilmiş olur.
+
+### Donanım Register Etkileşimi (Hardware Access)
+ISR bloğundaki `bit.b #64, &0x0023` komutu, doğrudan bir donanım adresine müdahaleyi gösterir. Bellek analizinde `0x0023` adresinin `__P1IFG` (Port 1 Interrupt Flag Register) olduğu bilinmektedir. Kesme yöneticisi, hangi pinden kesme geldiğini anlamak için bu donanım register'ındaki 6. biti (Değeri 64) test etmektedir.
+
+###  Branch (Dallanma), Karar Yapıları ve Optimizasyon Analizi
+Kod içerisindeki `if/else` karar yapılarının derleyici tarafından nasıl Assembly döngülerine çevrildiği ve optimize edildiği tespit edilmiştir.
+```
+    3178:       b2 90 03 00     cmp     #3,     &0x1160 ;
+    317c:       60 11
+    317e:       0e 38           jl      $+30            ;abs 0x319c
+```
+Burada `cmp` (Compare) komutu, RAM'deki `0x1160` adresinde bulunan `curr_log_level_main` değişkeninin değerini `3` sabiti ile karşılaştırmaktadır. Ardından gelen `jl` (Jump if Less) komutu, eğer log seviyesi 3'ten küçükse aradaki `push` komutlarını atlayarak doğrudan `0x319c` adresine dallanmaktadır. Bu tür mantıksal sıçramalar, gereksiz kod icrasını önleyen tipik derleyici optimizasyonlarıdır.
+
+### Loop (Döngü) Davranışları
+Benzer bir şartlı dallanma (Branching) durumu ISR içerisinde de görülmektedir.
+```
+    3556:       0f 93           cmp     #0,     r15     ;r3 As==00
+    3558:       32 24           jz      $+102           ;abs 0x35be
+```
+Burada `r15` register'ındaki değer sıfır ise `jz` (Jump if Zero) komutu tetiklenmekte ve CPU kod bloğunda 102 byte ileriye (`0x35be` adresine) atlayarak bir karar döngüsünü (Loop) tamamlamaktadır. Bu yapı, C dilindeki `while()` veya `if()` bloklarının makine koduna dönüşmüş (expanded) halidir.
 
 ---
 
