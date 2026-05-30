@@ -84,56 +84,56 @@ furkann@DESKTOP-CPNNO3A:~/contiki-ng/examples/rpl-udp$ msp430-nm -n new-firmware
 00010000 T _vectors_end
 ```
 
-* ### **Kullanılan Araç Zinciri ve Analizin Amacı**
+### **Kullanılan Araç Zinciri ve Analizin Amacı**
 
 Bu analiz aşamasında, `new-firmware.z1` imajının içsel davranış modelini, bellek organizasyonunu ve yazılım mimarisini çözümlemek amacıyla MSP430 araç zincirinde bulunan `msp430-nm` ve `msp430-readelf` araçları kullanılmıştır. `nm `aracı ile firmware içindeki sembol tablosu (fonksiyonlar ve değişkenler) adres sırasına göre çözümlenmiş; `readelf -S` aracı ile de ELF formatının bölüm başlıkları (Section Headers) incelenerek yazılımın bellek uzayındaki stratejik yerleşimi doğrulanmıştır.
 
-* ### **Fonksiyon isimleri**
+### **Fonksiyon isimleri**
 
 Binary imaj içerisindeki çalıştırılabilir fonksiyonlar Flash bellek (`.text` ve `.far.text` segmentleri) üzerinde yer almaktadır. Sistem, işletim sistemini donanım seviyesinde başlatan `platform_init_stage_one` fonksiyonu ile ayağa kalkmakta ve `netstack_init` gibi fonksiyonlarla ağ hiyerarşisini kurmaktadır. `0x313e` adresinde konumlanan ana giriş noktası (`main`), sistemin temel çalışma döngüsünü başlatmaktadır.
 
-* ### **Global değişkenler**
+### **Global değişkenler**
 
 Sistem genelinden erişilebilen ve durum yönetimi için kritik olan global değişkenler RAM bölgesinde barındırılmaktadır. Analiz sonucunda ağ kimliğini tutan `mac_pan_id` (`0x1148`), düğümün eşsiz adresini belirten `node_id` (`0x14e6`) ve log seviyelerini kontrol eden `curr_log_level_main` (`0x1160`) gibi değişkenler tespit edilmiştir. Bu değişkenlerin **D** (Data) segmentinde yer alması, cihaza enerji verildiğinde bu değerlerin varsayılan başlangıç değerleriyle yüklendiğini göstermektedir.
 
-* ### **Static değişkenler**
+### **Static değişkenler**
 
 Yalnızca tanımlandıkları dosya (scope) içerisinden erişilebilen statik değişkenler, kapsülleme (encapsulation) ve bellek güvenliği amacıyla kullanılmıştır. Ağ paketlerinin zaman damgasını tutan `last_packet_timestamp` (`0x126c`) ve komşu düğümlerin bellek havuzunu yöneten `neighbor_memb` (`0x1118`) yapıları bu kategoriye girmektedir.
 
-* ### **ISR (interrupt) fonksiyonları**
+### **ISR (interrupt) fonksiyonları**
 
 Cihazın dış dünyaya ve asenkron donanım olaylarına gerçek zamanlı tepki verebilmesi için Kesme Yöneticileri (ISR) kullanılmıştır. Sembol tablosunda yer alan `port1_isr` (`0x353e`) GPIO kesmelerini, `watchdog_interrupt` (`0x37d8`) sistem kilitlenmelerini denetleyen zamanlayıcıyı, `cc2420_timerb1_interrupt` (`0x35fe`) ise radyo entegresinden gelen sinyalleri işlemektedir. Bu ISR'ler, `0xffc0` adresinden başlayan donanımsal `.vectors` tablosuna kayıtlıdır.
 
-* ### **Contiki process entry’leri**
+### **Contiki process entry’leri**
 
 İşletim sisteminin olay güdümlü (event-driven) yapısını oluşturan "thread" yapıları `process_thread_` ön ekiyle tespit edilmiştir. `process_thread_tcpip_process, process_thread_sensors_process ve process_thread_hello_world_process` sembolleri; firmware'in sensör okuması, ağ trafiği yönetimi ve ana uygulama görevlerini eşzamanlı (cooperative multitasking) bir yapı içerisinde yürüttüğünü kanıtlamaktadır.
 
-* ### **Radio driver fonksiyonları**
+### **Radio driver fonksiyonları**
 
 Cihazın fiziksel haberleşme (PHY/MAC) katmanını yöneten radyo sürücüleri incelendiğinde, cihazın Texas Instruments CC2420 (2.4 GHz 802.15.4) çipini kullandığı saptanmıştır. `cc2420_init, cc2420_transmit` ve iletişim gücünün enerji verimliliği için dinamik ayarlanmasına olanak tanıyan `cc2420_set_txpower` fonksiyonları sürücü katmanının temelini oluşturmaktadır.
 
-* ### **Timer callback’leri**
+### **Timer callback’leri**
 
 Sistemin görev zamanlaması ve asenkron beklemeler için Contiki'nin zamanlayıcı (Timer) kütüphanelerine yoğun biçimde başvurduğu görülmüştür. `etimer_expired, ctimer_set` ve donanım seviyesinde çalışan `rtimer_run_next` fonksiyonları; periyodik sensör okumalarının ve ağ beacon'larının (sinyallerinin) zamanında iletilmesini sağlamaktadır.
 
-* ### **Networking callback’leri**
+### **Networking callback’leri**
 
 Ağ yığını (Network Stack) analiz edildiğinde, cihazın IPv6 ve RPL tabanlı bir yönlendirme şeması koşturduğu netleşmiştir. `uip_icmp6_input` IPv6 ICMP mesajlarını işlerken; rpl_process_dio, `rpl_process_dao` ve `rpl_dag_root_start` fonksiyonları cihazın ağaç topolojisinde (DAG) yönlendirme metrikleri hesapladığını ve bir yönlendirici (router) profiline sahip olduğunu göstermektedir.
 
-* ### **Sensor handler’ları**
+### **Sensor handler’ları**
 
 Düğümün çevreyle etkileşimini sağlayan donanım sensörlerine ait okuma rutinleri tespit edilmiştir. `tmp102_read_temp_x100` sembolü ortam sıcaklık sensörünün, `accm_read_axis` sembolü ise ADXL345 dijital ivmeölçerinin entegre edildiğini ve sistem tarafından veri toplamak amacıyla aktif olarak kullanıldığını doğrulamaktadır.
 
-* ### **Kullanılan kütüphaneler**
+### **Kullanılan kütüphaneler**
 
 Cihaz belleğinde standart C kütüphanelerinin (örneğin; bellek kopyalama için `memcpy`, dizgi formatlama için `printf/snprintf`) yanı sıra Contiki'ye özgü çekirdek kütüphaneler yer almaktadır. Özellikle RAM bloklarının yönetimi için `memb_init` ve dinamik bağlı listeler için `list_add` kütüphanelerinin yoğun kullanımı, sistemin kısıtlı bellek (RAM) kaynaklarını dinamik bir şekilde yönettiğine işaret etmektedir.
 
-* ### **Kullanılmayan (dead) fonksiyonlar**
+### **Kullanılmayan (dead) fonksiyonlar**
 
 Geliştirme araç zincirinde, kod bloğunda bulunmasına rağmen programın hiçbir yerinde çağırılmayan (dead code) fonksiyonların analizi için ELF Section başlıkları (`readelf -S`) ve Sembol Tablosu incelenmiştir. Çıktıda `.text.fonksiyon_adi` şeklinde izole edilmiş fonksiyon blokları yerine, boyutları oldukça büyük tekil `.text` (0x976e) ve `.far.text` (0x4a78) blokları gözlemlenmiştir. Bununla birlikte, dosyada `.debug_info`, `.debug_line` gibi hata ayıklama (debug) sembollerinin tam boyutuyla tutulduğu (toplamda ~0x4000 byte civarı) görülmektedir. ELF dosyasının yapısı değerlendirildiğinde, bağlayıcı (Linker) aşamasında kullanılmayan kodların sistemden tamamen atılması işleminin (Dead Code Elimination / `--gc-sections`) bu binary dosyası oluşturulurken izole bir iz bırakmadığı anlaşılmıştır. Dolayısıyla, son ELF dosyasında "atılmış" fonksiyonların listesi, derleyici tarafından sessizce temizlendiği için doğrudan görünmemektedir.
 
 
-* ### **Function Address Mapping (Fonksiyon Adres Haritalaması)**
+### **Function Address Mapping (Fonksiyon Adres Haritalaması)**
 
 `readelf -S` aracı ile elde edilen ELF Section başlıkları ve `nm` çıktıları birleştirilerek, yazılımın hedef cihazdaki nihai bellek haritası (Memory Map) aşağıda özetlenmiştir. Bu adres haritalaması, cihazın çalışma zamanında (runtime) vereceği olası "Crash (Çökme)" loglarındaki hata adreslerini çözümlerken referans alınacak ana yapı niteliğindedir.
 
@@ -153,24 +153,63 @@ Geliştirme araç zincirinde, kod bloğunda bulunmasına rağmen programın hiç
 
 # 4. String ve Metadata Analizi
 
-* Debug mesajları
-* printf logları
-* IPv6 adresleri
-* MAC adresleri
-* Network node ID’leri
-* Sensor isimleri
-* Process isimleri
-* Routing protokol isimleri
-* TSCH/6LoWPAN/RPL stringleri
-* Hidden diagnostic message’lar
-* Hardcoded config değerleri
-* Developer notları
+```
+furkann@DESKTOP-CPNNO3A:~/contiki-ng/examples/rpl-udp$ msp430-strings new-firmware.z1
+...
+ADXL345 sensor
+Accelerometer process
+CC2420 driver
+...
+Starting Contiki-NG-release/v4.8-625-g8518cbaff-dirty
+- 802.15.4 PANID: 0x%04x
+- 802.15.4 Default channel: %u
+Node ID: %u
+Tentative link-local IPv6 address:
+...
+created a new RPL DAG
+initialized DAG with instance ID %u, DAG ID
+...
+GCC: (GNU) 4.7.2 20120920 (mspgcc dev 20120911)
+/home/user/tmp/gcc-4.7.2-msp430/msp430/mcpu-430x/mmpy-16/msr20/mc20/libgcc
+...
+```
 
-Araçlar:
+### **Kullanılan Araç Zinciri ve Analizin Amacı**
+Bu bölümde, derlenmiş firmware imajı (`new-firmware.z1`) içerisinde insan tarafından okunabilir (ASCII) metinleri, log formatlarını ve gömülü yapılandırma değerlerini ortaya çıkarmak amacıyla `msp430-strings` aracı kullanılmıştır. Bu araç, binary dosya içindeki ardışık yazdırılabilir karakterleri tarayarak yazılımın çalışma zamanında (runtime) konsola basacağı debug mesajlarını, ağ protokollerinin bıraktığı izleri ve donanım kimliklerini açığa çıkarmaktadır.
 
-* `msp430-strings`
-* `Ve üstteki aracın ARM versiyonu...`
+### **Debug Mesajları ve `printf` Logları**
+Sistem içerisindeki metinler incelendiğinde, cihazın çalışma durumunu bildiren çok sayıda `INFO` (Bilgi) ve `WARN` (Uyarı) seviyesinde log tespit edilmiştir.
 
+  * **Başlangıç İzleri:** Sistemin ayağa kalktığını gösteren `"Starting Contiki-NG-release..."` ve `"Hello, EK-D103"` gibi boot (başlatma) mesajları bulunmaktadır.
+
+  * **Durum ve Hata Bildirimleri:** Radyo ve kuyruk yönetimine ait `"scheduling transmission in %u ticks", "packet sent to , seqno %u", "Neighbor queue full" ve "failed to create packet"` gibi metinler, sistemin MAC ve kuyruk (queuebuf) katmanında detaylı hata ayıklama (debug) verisi ürettiğini kanıtlamaktadır.
+
+### **Ağ Parametreleri ve Protokol İzleri (IPv6, RPL, 6LoWPAN)**
+Firmware'in ağ yetenekleri, kodun içine gömülmüş uyarı ve durum mesajları sayesinde kesin olarak doğrulanmıştır:
+
+- **Fiziksel / MAC Katmanı:** `"- 802.15.4 PANID: 0x%04x"` ve `"- 802.15.4 Default channel: %u"` ifadeleri, IEEE 802.15.4 kablosuz standardının kullanıldığını göstermektedir.
+- **RPL (Yönlendirme):** Cihazın RPL protokolündeki davranışlarını anlatan `"created a new RPL DAG", "initiating global repair", "DAG expired, poison and leave" ve "received a %s-DIO from"` gibi stringler yoğun bir şekilde yer almaktadır. Bu durum cihazın ağaç topolojisinde aktif bir yönlendirme aktörü (router) olduğunu doğrular.
+- **IPv6 ve 6LoWPAN:** `"Tentative link-local IPv6 address:", "Sending ICMPv6 ERROR message" ve "reassembly: failed to store new fragment session"` mesajları, cihazın IPv6 yığınına sahip olduğunu ve büyük paketleri 6LoWPAN adaptasyon katmanında parçalayıp (fragmentation) birleştirdiğini kanıtlamaktadır.
+
+### **İşletim Sistemi (Process) ve Sensör İsimleri**
+Bir önceki sembol analizinde adresleri tespit edilen Contiki-NG işlemlerinin (processes) ve donanım bileşenlerinin, bellek içerisine gömülmüş string karşılıkları başarıyla çıkarılmıştır:
+* **İşletim Sistemi Görevleri:** `"Hello world process", "TCP/IP process", "Ctimer process", "Event timer" ve "Accelerometer process".`
+* **Donanım ve Sürücüler:** `"ADXL345 sensor"` (İvmeölçer), `"TMP102 sensor"` (Sıcaklık), `"Button"` (Fiziksel Tuş) ve haberleşme çipi olan `"CC2420 driver"` isimleri düz metin olarak kodda bulunmaktadır.
+
+### **Hardcoded (Gömülü) Config Değerleri ve Geliştirici İzleri**
+Geliştirme ortamına ve derleyiciye (Compiler) ait son derece kritik geliştirici izleri (metadata) saptanmıştır:
+
+* **İşletim Sistemi Versiyonu:** Cihaza yüklenen Contiki-NG versiyonu `"Contiki-NG-release/v4.8-625-g8518cbaff-dirty"` olarak tespit edilmiştir. Buradaki *dirty* bayrağı (flag), derleme (compile) işlemi yapılırken Git deposunda henüz commit edilmemiş (kaydedilmemiş) değişiklikler olduğunu gösteren önemli bir detaydır.
+* **Derleyici ve Dizin İzleri:** Kodu derleyen araç zincirinin versiyonu `"GCC: (GNU) 4.7.2 20120920 (mspgcc dev 20120911)"` ve asbmler versiyonu `"GNU AS 2.22"` olarak kodun içine kazınmıştır.
+* **Geliştirici Bilgisayarı Yolları:** Derleme işleminin yapıldığı bilgisayarın mutlak dosya yolları (Absolute Paths) ELF formatında kalmıştır: `"/home/user/tmp/gcc-4.7.2-msp430/msp430/..."` ve `"/home/user/mspgcc-4.7.2/lib/gcc/msp430/..."`. Bu bilgi, firmware'in bir Linux ortamında ve "user" adlı bir kullanıcı dizininde derlendiğini kesin olarak ispatlamaktadır.
+
+| Kategori | Tespit Edilen Örnek Metin (String) |	Yorum / Teknik Anlamı |
+|---|---|---|
+| Boot & İşletim Sistemi | Starting Contiki-NG-release... |	Sistemin başlangıç mesajı ve kullanılan OS versiyonu. |
+| Fiziksel Ağ (MAC) | `- 802.15.4 PANID: 0x%04x` |	Cihazın `IEEE 802.15.4` kablosuz standardında çalıştığı kanıtlanmıştır. |
+| Yönlendirme & IPv6 | `Tentative link-local IPv6 address: created a new RPL DAG` |	Cihazın IPv6 kullandığı ve RPL yönlendirme ağacı (DAG) oluşturabildiği görülmüştür. |
+| Sensör & Donanım | `ADXL345 sensor CC2420 driver` |	İvmeölçer sensörünün ve radyo çipinin sürücü metinleridir. |
+| Geliştirici İzleri | `GCC: (GNU) 4.7.2 /home/user/tmp/gcc-4.7.2...` |	Kodu derleyen GCC versiyonu ve derlemenin yapıldığı bilgisayarın mutlak dosya yoludur. |
 ---
 
 # 5. Assembly / Instruction Analizi
