@@ -15,47 +15,166 @@
 
 # 1. Binary Kimlik Analizi
 
-* Hedef platform analizi (`.z1` / `.sky` / `ARM M4F(CC1352R)` / `cooja-native`)
-* MSP430 mimari tipi
-* ELF format bilgisi
-* Endianness nedir ve Endianness bilgisi
-* Entry point adresi
-* ABI nedir ve ABI bilgisi
-* Compiler izi
-* Toolchain versiyonu
-* Optimization level tahmini
-* Debug symbol var/yok analizi
+Bu bölümde `new-firmware.z1`, `udp-client.z1` ve `udp-server.z1` firmware imajlarının temel dosya kimliği incelenmiştir. Analizde `file`, `msp430-readelf -h` ve `msp430-strings` araçları kullanılmıştır. Amaç, dosyaların hangi mimari için üretildiğini, hangi çalıştırılabilir formatı kullandığını, başlangıç adresini, endian bilgisini, ABI bilgisini ve debug/derleyici izlerini ortaya çıkarmaktır.
 
-Araçlar:
+## Kullanılan Araçlar ve Amaçları
 
-* `msp430-readelf`
-* `msp430-objdump`
-* `msp430-strings`
-* `Ve üstteki araçların ARM versiyonları...`
----
+`file` komutu, firmware dosyasının genel türünü hızlıca belirlemek için kullanılmıştır. Bu komut sayesinde dosyanın ham veri mi yoksa çalıştırılabilir bir ELF imajı mı olduğu anlaşılır.
+
+`msp430-readelf -h` komutu, ELF başlığını incelemek için kullanılmıştır. Bu başlık içerisinde ELF sınıfı, endian yapısı, hedef mimari, ABI bilgisi, giriş adresi ve program/section header bilgileri bulunur.
+
+`msp430-strings` komutu, firmware içinde gömülü halde bulunan okunabilir metinleri, derleyici izlerini ve debug bilgilerini tespit etmek için kullanılmıştır.
+
+## Hedef Platform ve Mimari
+
+Analiz edilen üç dosya da `.z1` uzantılı firmware imajlarıdır. `.z1` dosyaları Contiki-NG ortamında Zolertia Z1 platformu için üretilen firmware dosyalarıdır. Bu platform MSP430 tabanlı olduğu için analizde MSP430 araç zinciri kullanılmıştır.
+
+`file` ve `msp430-readelf -h` çıktıları incelendiğinde dosyaların hedef mimarisinin `Texas Instruments msp430 microcontroller` olduğu görülmüştür. Bu durum, firmware imajlarının ARM veya x86 için değil, MSP430 mikrodenetleyici mimarisi için üretildiğini göstermektedir.
+
+## ELF Format Bilgisi
+
+`file` komutu sonucunda `new-firmware.z1` dosyasının aşağıdaki şekilde tanımlandığı görülmüştür:
+
+`ELF 32-bit LSB executable, TI msp430, version 1 (embedded), statically linked, with debug_info, not stripped`
+
+Bu çıktı, firmware dosyasının ham binary veri olmadığını, 32-bit ELF çalıştırılabilir dosya formatında olduğunu göstermektedir. ELF formatı, yalnızca makine kodunu değil; section bilgilerini, sembol tablosunu, giriş adresini, mimari bilgisini ve debug bilgilerini de içerir.
+
+![file komutu çıktısı](images/01_file.png)
+
+**Şekil 1.** `file` komutu ile `new-firmware.z1` dosyasının ELF32 MSP430 executable olarak tespit edilmesi.
+
+## Endianness Bilgisi
+
+ELF başlığında `Data: 2's complement, little endian` bilgisi görülmüştür. Bu ifade, firmware dosyasının little-endian byte sıralamasına göre üretildiğini gösterir. Little-endian düzende çok baytlı veriler bellekte düşük anlamlı byte önce gelecek şekilde saklanır. Bu bilgi, firmware’in hedef işlemci mimarisiyle uyumlu biçimde derlendiğini anlamak için önemlidir.
+
+## Entry Point Adresi
+
+`msp430-readelf -h` çıktısına göre analiz edilen üç firmware dosyasının da giriş adresi `0x3100` olarak görülmektedir. Entry point, işlemcinin programı çalıştırmaya başladığında ilk komutları yürütmeye başlayacağı adresi ifade eder.
+
+Bu projede `0x3100` adresinin ortak olması, `new-firmware.z1`, `udp-client.z1` ve `udp-server.z1` imajlarının aynı platform ve benzer linker yerleşimi hedeflenerek üretildiğini göstermektedir.
+
+![msp430-readelf header çıktısı](images/02_elf_header.png)
+
+**Şekil 2.** `msp430-readelf -h` çıktısı ile `new-firmware.z1` dosyasının ELF sınıfı, endianness, ABI, hedef mimari ve giriş adresi bilgisinin gösterilmesi.
+
+## ABI Bilgisi
+
+ELF başlığında `OS/ABI: Standalone App` ve `ABI Version: 0` bilgisi yer almaktadır. Bu durum, firmware’in klasik masaüstü işletim sistemleri için değil, doğrudan gömülü sistem üzerinde çalışacak bağımsız bir uygulama imajı olarak üretildiğini gösterir. Yani dosya Linux, macOS veya Windows üzerinde çalışacak bir program değil; MSP430 tabanlı gömülü cihaz üzerinde çalışacak firmware imajıdır.
+
+## Compiler ve Toolchain İzleri
+
+`msp430-strings` çıktısında derleyiciye ait izler görülmektedir. Özellikle `GCC: (GNU) 4.7.2 20120920 (mspgcc dev 20120911)` benzeri ifadeler, firmware’in MSP430 için hazırlanmış GCC tabanlı araç zinciriyle derlendiğini göstermektedir.
+
+Bu bilgi, firmware’in hangi derleyici ailesiyle oluşturulduğunu anlamak açısından önemlidir. Ayrıca dosya içinde derleyici ve bazı dizin izlerinin kalmış olması, firmware’in debug/analiz için daha fazla bilgi taşıdığını gösterir.
+
+## Optimization Level Tahmini
+
+Firmware dosyasından optimization seviyesini kesin olarak çıkarmak mümkün değildir. Ancak `file` çıktısında `with debug_info, not stripped` bilgisi görülmektedir. Bu durum, dosyanın debug bilgilerini ve sembolleri hâlâ içerdiğini gösterir. Eğer dosya tamamen optimize edilip küçültülmüş ve strip edilmiş olsaydı, sembol ve debug bilgileri büyük ölçüde kaldırılmış olurdu.
+
+Bu nedenle firmware’in analiz edilebilirliği yüksektir. Fonksiyon isimleri, section bilgileri ve debug bölümleri korunmuş olduğundan reverse engineering ve statik analiz işlemleri daha kolay yapılabilmektedir.
+
+## Debug Symbol Durumu
+
+`file` çıktısındaki `with debug_info, not stripped` ifadesi, firmware imajının debug bilgilerini içerdiğini ve sembollerden arındırılmadığını göstermektedir. Ayrıca ELF section analizinde `.debug_info`, `.debug_line`, `.debug_str`, `.debug_frame`, `.debug_loc` ve `.debug_ranges` gibi debug bölümleri görülmektedir.
+
+Bu debug bölümleri firmware’in çalışması için doğrudan gerekli değildir; ancak analiz sürecinde kaynak kod, fonksiyon, sembol ve adres ilişkilerinin anlaşılmasına yardımcı olur.
+
+## Genel Sonuç
+
+Binary kimlik analizi sonucunda `new-firmware.z1`, `udp-client.z1` ve `udp-server.z1` dosyalarının MSP430 mimarisi için hazırlanmış ELF32 çalıştırılabilir firmware imajları olduğu belirlenmiştir. Dosyalar little-endian yapıdadır, giriş adresleri `0x3100` olarak belirlenmiştir ve gömülü sistemler için `Standalone App` formatında üretilmiştir.
+
+Bu sonuç, dosyaların yalnızca ham veri olarak değil, belirli bellek adreslerine yerleşmesi gereken yapısal firmware imajları olarak değerlendirilmesi gerektiğini göstermektedir. OTA aktarım senaryosunda bu bilgi önemlidir; çünkü firmware’in yalnızca ağ üzerinden taşınması değil, hedef sistemde doğru bellek bölgelerine nasıl yerleşeceğinin de anlaşılması gerekir.
+
+
 
 # 2. Bellek Kullanım Analizi
 
-* Flash, RAM, Stack, Heap anlamları
-* Flash kullanım miktarı
-* RAM kullanım miktarı
-* `.text` boyutu
-* `.data` boyutu
-* `.bss` boyutu
-* Stack kullanım tahmini
-* Heap var/yok analizi
-* Section dağılımı
-* Memory map analizi
-* Büyük veri yapılarının tespiti
+Bu bölümde `new-firmware.z1`, `udp-client.z1` ve `udp-server.z1` firmware imajlarının bellek kullanımı incelenmiştir. Analizde temel olarak `msp430-size`, `msp430-readelf` ve `msp430-objdump` araçları kullanılmıştır. Amaç, firmware dosyalarının kod ve veri bölümlerinin Flash ve RAM üzerinde nasıl yer kapladığını anlamaktır.
 
-Araçlar:
+## Kullanılan Araçlar ve Amaçları
 
-* `msp430-size`
-* `msp430-readelf`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
+`msp430-size` aracı, firmware imajının `text`, `data` ve `bss` alanlarının boyutlarını özet olarak verir. Bu çıktı, programın Flash ve RAM kullanımını hızlıca değerlendirmek için kullanılmıştır.
 
----
+`msp430-readelf -S` ve `msp430-objdump -h` araçları ise firmware içerisindeki section yapısını ayrıntılı olarak görmek için kullanılmıştır. Bu sayede `.text`, `.data`, `.bss`, `.rodata` ve `.vectors` gibi bölümlerin hangi adreslere yerleştirildiği incelenmiştir.
+
+## Flash, RAM, Stack ve Heap Kavramları
+
+Gömülü sistemlerde Flash bellek, program kodunun ve sabit verilerin kalıcı olarak tutulduğu alandır. Cihaz kapansa bile Flash bellekteki veri kaybolmaz. Bu nedenle firmware içerisindeki çalıştırılabilir kodlar genellikle Flash üzerinde bulunur.
+
+RAM ise program çalışırken kullanılan geçici bellektir. Global değişkenler, çalışma zamanında değişen veriler, stack ve bazı buffer alanları RAM üzerinde tutulur. Cihaz kapandığında RAM içeriği kaybolur.
+
+Stack, fonksiyon çağrıları sırasında dönüş adresleri, geçici değişkenler ve register yedekleri için kullanılan bellek alanıdır. Heap ise dinamik bellek ayırma işlemleri için kullanılır. Bu firmware yapısında heap kullanımına dair doğrudan ayrı bir section gözlemlenmemiştir; Contiki-NG gibi gömülü işletim sistemlerinde bellek yönetimi çoğunlukla statik buffer yapıları ve önceden ayrılmış bellek havuzları üzerinden yapılır.
+
+## `text`, `data` ve `bss` Boyutları
+
+`msp430-size` çıktısına göre `new-firmware.z1` dosyasının bellek kullanımı aşağıdaki gibidir:
+
+![msp430-size çıktısı](images/10_size.png)
+
+**Şekil 3.** `msp430-size` çıktısı ile `new-firmware.z1` dosyasının `text`, `data` ve `bss` bellek kullanım değerlerinin gösterilmesi.
+
+`new-firmware.z1` dosyasında `text` alanı 71715 bayttır. Bu alan, çalıştırılabilir program kodunu ve bazı salt okunur verileri temsil eder. Gömülü sistem açısından bu alan ağırlıklı olarak Flash bellekte yer kaplar.
+
+`data` alanı 336 bayttır. Bu bölüm, başlangıç değeri olan global ve statik değişkenleri içerir. `.data` bölümü Flash içinde başlangıç değeriyle saklanır; program çalışırken RAM’e kopyalanır. Bu nedenle `.data` hem Flash hem de RAM açısından dikkate alınmalıdır.
+
+`bss` alanı 5706 bayttır. Bu bölüm, başlangıçta sıfır değerine sahip global ve statik değişkenler için ayrılan RAM alanıdır. `.bss` bölümü dosya içinde gerçek veri olarak büyük yer kaplamaz; fakat program çalışmaya başladığında RAM’de bu alan ayrılır ve sıfırlanır.
+
+Not: Section çıktısında `.bss` bölümü `0x1648` yani 5704 bayt görünmektedir. Buna ek olarak `.noinit` bölümü 2 bayttır. `msp430-size` çıktısındaki `bss = 5706` değeri, çalışma zamanı RAM alanı olarak `.bss + .noinit` toplamı şeklinde değerlendirilebilir.
+
+## Firmware Dosyalarının Boyut Karşılaştırması
+
+Analiz edilen üç firmware dosyasının `msp430-size` sonuçları aşağıdaki gibidir:
+
+| Firmware Dosyası  |  text | data |  bss |   dec |   hex |
+| ----------------- | ----: | ---: | ---: | ----: | ----: |
+| `new-firmware.z1` | 71715 |  336 | 5706 | 77757 | 12fbd |
+| `udp-client.z1`   | 42871 |  336 | 5922 | 49129 |  bfe9 |
+| `udp-server.z1`   | 42585 |  336 | 5866 | 48787 |  be93 |
+
+Bu tabloya göre en büyük firmware imajı `new-firmware.z1` dosyasıdır. `new-firmware.z1` dosyasının `text` alanının diğer iki firmware dosyasına göre belirgin şekilde büyük olması, içerisinde daha fazla çalıştırılabilir kod ve sabit veri bulunduğunu göstermektedir.
+
+`udp-client.z1` ve `udp-server.z1` dosyalarının boyutları birbirine oldukça yakındır. Bunun nedeni iki firmware’in aynı Contiki-NG altyapısını, aynı platform kütüphanelerini ve benzer ağ bileşenlerini kullanmasıdır. Aradaki küçük fark, uygulama seviyesindeki client/server görev farklılıklarından kaynaklanmaktadır.
+
+## Section Dağılımı ve Memory Map Yorumu
+
+Firmware imajında `.text`, `.far.text`, `.rodata`, `.data`, `.bss`, `.noinit` ve `.vectors` gibi temel section’lar bulunmaktadır. Bu section’ların görevleri bellek kullanımını anlamak açısından önemlidir.
+
+| Section     | Bellek Karşılığı     | Görevi                                             |
+| ----------- | -------------------- | -------------------------------------------------- |
+| `.text`     | Flash                | Ana çalıştırılabilir kod bölümü                    |
+| `.far.text` | Flash                | MSP430 genişletilmiş adres alanındaki kod bölümü   |
+| `.rodata`   | Flash                | Sabit stringler ve değişmeyen veriler              |
+| `.data`     | Flash + RAM          | Başlangıç değeri olan global/statik değişkenler    |
+| `.bss`      | RAM                  | Başlangıçta sıfırlanan global/statik değişkenler   |
+| `.noinit`   | RAM                  | Reset sonrası sıfırlanmaması istenen küçük alanlar |
+| `.vectors`  | Flash / Vector alanı | Kesme ve reset vektörleri                          |
+
+Bu dağılıma göre firmware’in çalıştırılabilir kod ve sabit veri bölümleri Flash üzerinde tutulur. Çalışma sırasında değişen veriler ise RAM üzerinde yer kaplar. Özellikle `.data` ve `.bss` bölümleri RAM kullanımı açısından önemlidir.
+
+## Stack Kullanım Tahmini
+
+`msp430-size` çıktısı doğrudan stack kullanımını göstermez. Stack kullanımı, çalışma zamanındaki fonksiyon çağrı derinliğine, kesme rutinlerine ve yerel değişken kullanımına bağlıdır. Ancak assembly çıktılarında görülen `push`, `pushm.a`, `calla` gibi komutlar, fonksiyon çağrıları ve ISR işlemleri sırasında stack kullanımının gerçekleştiğini göstermektedir.
+
+Bu nedenle stack alanı, `.data` ve `.bss` dışında ayrıca RAM üzerinde yer tüketen dinamik bir çalışma zamanı alanı olarak değerlendirilmelidir.
+
+## Heap Kullanımı
+
+Analiz edilen ELF çıktılarında heap için belirgin ve ayrı bir section gözlemlenmemiştir. Bu durum, firmware’in klasik masaüstü uygulamalarındaki gibi yoğun dinamik bellek ayırma yapmadığını düşündürmektedir. Contiki-NG tabanlı gömülü sistemlerde bellek kullanımı genellikle statik buffer’lar, packetbuf yapısı ve önceden ayrılmış bellek havuzları üzerinden yönetilir.
+
+Bu yaklaşım, sınırlı RAM’e sahip mikrodenetleyicilerde bellek taşması riskini azaltmak için tercih edilir.
+
+## Büyük Veri Yapılarının Tespiti
+
+`bss` alanının 5706 bayt olması, firmware içinde çalışma zamanında RAM’de yer ayıran global veya statik veri yapılarının bulunduğunu göstermektedir. Bu alan; ağ buffer’ları, komşu tabloları, zamanlayıcı yapıları, process kontrol yapıları ve Contiki-NG’nin sistem veri yapıları tarafından kullanılabilir.
+
+Ayrıca `data` alanının 336 bayt ile küçük kalması, başlangıç değeri verilmiş global değişkenlerin sınırlı olduğunu; buna karşılık sıfırlanarak başlatılan çalışma zamanı verilerinin daha fazla yer kapladığını göstermektedir.
+
+## Genel Değerlendirme
+
+Bellek kullanım analizi sonucunda `new-firmware.z1` dosyasının en büyük bellek yüküne sahip firmware olduğu görülmüştür. `text` alanı ağırlıklı olarak Flash bellekte, `data` ve `bss` alanları ise çalışma zamanında RAM üzerinde karşılık bulmaktadır.
+
+Bu sonuç OTA aktarımı açısından önemlidir. Çünkü aktarılacak firmware imajı yalnızca düz bir byte dizisi değildir; çalıştırılabilir kod, sabit veri, RAM’e yerleşecek değişkenler ve kesme vektörleri gibi farklı bölümlerden oluşur. Bu nedenle firmware aktarımı yapılırken yalnızca dosyanın gönderilmesi değil, dosyanın hedef sistemde hangi bellek alanlarına karşılık geldiğinin de anlaşılması gerekir.
+
 
 # 3. Symbol / Function Analizi
 
@@ -335,29 +454,76 @@ Araçlar:
 * `msp430-objdump -S`
 * `Ve üstteki araçların ARM versiyonları...`
 
----
-
 # 7. ELF Yapısı Analizi
 
-* ELF header
-* Section header
-* Program header
-* Symbol table
-* Relocation entries
-* Debug sections
-* DWARF info
-* Linker-generated metadata
-* Startup section
-* Vector table
-* Initialization routines
+Bu bölümde `new-firmware.z1` firmware imajının ELF iç yapısı incelenmiştir. Analizde `msp430-readelf`, `msp430-objdump` ve `msp430-nm` araçlarından yararlanılmıştır. Amaç, firmware dosyasının yalnızca makine kodundan oluşmadığını; ELF header, section header, program header, symbol table, debug bölümleri ve kesme vektörleri gibi yapısal bilgiler taşıdığını göstermektir.
 
-Araçlar:
+## Kullanılan Araçlar ve Amaçları
 
-* `msp430-readelf`
-* `msp430-elfedit`
-* `Ve üstteki araçların ARM versiyonları...`
+`msp430-readelf -h` komutu ELF başlığını incelemek için kullanılmıştır. Bu başlıkta dosyanın ELF sınıfı, mimarisi, endian yapısı, ABI bilgisi, giriş adresi ve section/program header bilgileri bulunur.
 
----
+`msp430-readelf -S` komutu section header listesini görmek için kullanılmıştır. Bu komut sayesinde `.text`, `.data`, `.bss`, `.rodata`, `.vectors` ve `.debug_*` gibi bölümler tespit edilmiştir.
+
+`msp430-readelf -l` komutu program header bilgilerini incelemek için kullanılmıştır. Program header bilgileri, dosyanın yükleme ve çalışma sırasında belleğe nasıl yerleştirileceği hakkında bilgi verir.
+
+`msp430-objdump -h` komutu section’ların boyutlarını, başlangıç adreslerini ve dosya içindeki konumlarını görmek için kullanılmıştır.
+
+## ELF Header Analizi
+
+ELF header, firmware dosyasının kimlik bilgisini taşıyan ana başlıktır. `msp430-readelf -h` çıktısına göre `new-firmware.z1` dosyası `ELF32` sınıfındadır, little-endian yapıdadır ve hedef mimarisi `Texas Instruments msp430 microcontroller` olarak görülmektedir.
+
+Aynı çıktıda giriş adresi `0x3100` olarak belirlenmiştir. Bu adres, firmware çalışmaya başladığında işlemcinin komut yürütmeye başlayacağı başlangıç noktasıdır. Bu bilgi firmware’in çalıştırılabilir bir yapıya sahip olduğunu gösterir.
+
+## Section Header Analizi
+
+ELF dosyasında farklı görevler için ayrılmış section’lar bulunmaktadır. Bu section yapısı, dosyanın ham binary olmadığını ve belleğe belirli kurallarla yerleşmesi gereken bir firmware imajı olduğunu gösterir.
+
+![msp430-objdump section çıktısı](images/07_objdump_sections.png)
+
+**Şekil 4.** `msp430-objdump -h` çıktısı ile `new-firmware.z1` dosyasının ELF section yapısının gösterilmesi.
+
+Çıktıda `.text`, `.far.text`, `.rodata`, `.data`, `.bss`, `.noinit`, `.vectors` ve `.debug_*` bölümleri görülmektedir. Bu bölümlerin her biri firmware içinde farklı bir göreve sahiptir.
+
+| Section | Görevi |
+|---|---|
+| `.text` | Ana çalıştırılabilir kod bölümüdür. |
+| `.far.text` | MSP430 genişletilmiş adres alanındaki çalıştırılabilir kodları içerir. |
+| `.rodata` | Sabit stringler ve değişmeyen veriler burada tutulur. |
+| `.data` | Başlangıç değeri olan global/statik değişkenleri içerir. |
+| `.bss` | Başlangıçta sıfırlanan global/statik değişkenler için RAM alanıdır. |
+| `.noinit` | Reset sonrası sıfırlanmaması istenen küçük bellek alanıdır. |
+| `.vectors` | Kesme ve reset vektörlerini içerir. |
+| `.debug_*` | Kaynak kod eşleme ve hata ayıklama bilgilerini içerir. |
+
+## Program Header Analizi
+
+Program header bilgileri, firmware dosyasının yüklenirken belleğe nasıl yerleştirileceği hakkında bilgi verir. Gömülü sistemlerde bu yapı, hangi bölümlerin Flash üzerinde kalacağını ve hangi bölümlerin çalışma sırasında RAM’e taşınacağını anlamak için önemlidir.
+
+Örneğin `.text` ve `.rodata` gibi bölümler Flash üzerinde kalırken, `.data` başlangıçta Flash içinde saklanır ve çalışma sırasında RAM’e kopyalanır. `.bss` ise dosya içinde veri olarak büyük yer kaplamaz; program başlatılırken RAM’de ayrılır ve sıfırlanır.
+
+## Symbol Table Analizi
+
+ELF dosyasında sembol tablosu da bulunmaktadır. `msp430-readelf -s` ve `msp430-nm -n` çıktıları, firmware içindeki fonksiyonların, global değişkenlerin ve özel linker sembollerinin adreslerini gösterir.
+
+Bu yapı sayesinde `main`, `port1_isr`, `cc2420_init`, `rpl_process_dio`, `__data_start`, `__bss_start` ve `__vectors_start` gibi semboller görülebilir. Bu semboller, firmware’in yalnızca düz makine kodu değil; fonksiyonlar, değişkenler ve bellek yerleşim bilgileri içeren yapısal bir ELF imajı olduğunu gösterir.
+
+## Debug Sections ve DWARF Bilgisi
+
+ELF section listesinde `.debug_info`, `.debug_line`, `.debug_str`, `.debug_frame`, `.debug_loc` ve `.debug_ranges` gibi debug bölümleri görülmektedir. Bu bölümler firmware’in çalışması için zorunlu değildir; ancak analiz, hata ayıklama ve kaynak kod-adres eşlemesi için önemlidir.
+
+`file` çıktısında görülen `with debug_info, not stripped` bilgisi de bu durumu destekler. Yani firmware dosyası sembol ve debug bilgilerinden tamamen arındırılmamıştır.
+
+## Startup Section ve Vector Table
+
+`.vectors` bölümü MSP430 mimarisinde kritik öneme sahiptir. Bu bölüm `0xffc0` adresinde yer almakta ve kesme vektörlerini içermektedir. Reset veya donanımsal kesme oluştuğunda işlemcinin hangi adrese dallanacağını bu vektör tablosu belirler.
+
+Bu nedenle `.vectors` bölümü, firmware’in başlangıç davranışı ve donanım olaylarına tepki verebilmesi açısından temel bir yapıdır.
+
+## Genel Değerlendirme
+
+ELF yapısı analizi sonucunda `new-firmware.z1` dosyasının yalnızca ham makine kodu taşımadığı görülmüştür. Dosya; ELF header, section header, program header, sembol tablosu, debug bölümleri ve kesme vektörleri gibi birçok yapısal bilgi içermektedir.
+
+Bu yapı, firmware’in hedef MSP430 sisteminde hangi bellek bölgelerine yerleşeceğini ve çalışırken hangi bölümlerin Flash/RAM üzerinde kullanılacağını anlamayı sağlar. OTA aktarımı açısından bu bilgi önemlidir; çünkü taşınan dosya yalnızca byte dizisi değil, belirli bir mimari ve bellek düzeni için hazırlanmış çalıştırılabilir bir firmware imajıdır.
 
 # 8. Interrupt ve Donanım Analizi
 
@@ -589,28 +755,106 @@ Araçlar:
 * `msp430-objdump`
 * `Ve üstteki araçların ARM versiyonları...`
 
----
-
 # 17. Linker ve Build Sistemi Analizi
 
-* Section placement
-* Link order
-* Static library linkage
-* Startup code
-* Linker script behavior
-* Vector placement
-* Symbol resolution
-* Relocation behavior
+Bu bölümde `new-firmware.z1` dosyasının linker tarafından nasıl bellek bölgelerine yerleştirildiği incelenmiştir. Analizde `msp430-readelf -S`, `msp430-readelf -l`, `msp430-objdump -x`, `msp430-objdump -h` ve `msp430-nm -n` çıktıları kullanılmıştır. Amaç, firmware içerisindeki kod, veri, sabit veri ve kesme vektörü bölümlerinin MSP430 bellek haritasında hangi adreslere yerleştirildiğini anlamaktır.
 
-Araçlar:
+## Kullanılan Araçlar ve Amaçları
 
-* `msp430-ld`
-* `msp430-ar`
-* `msp430-ranlib`
-* `msp430-readelf`
-* `Ve üstteki araçların ARM versiyonları...`
+`msp430-readelf -S` komutu, ELF dosyasındaki section başlıklarını görmek için kullanılmıştır. Bu komut ile `.text`, `.far.text`, `.rodata`, `.data`, `.bss`, `.noinit` ve `.vectors` gibi bölümler tespit edilmiştir.
 
----
+`msp430-readelf -l` komutu, program header bilgilerini incelemek için kullanılmıştır. Program header çıktısı, section’ların hangi LOAD segmentleri altında belleğe yüklendiğini gösterir.
+
+`msp430-objdump -x` ve `msp430-objdump -h` komutları, firmware’in mimari bilgisini, başlangıç adresini, section boyutlarını, VMA/LMA adreslerini ve sembol tablosunu ayrıntılı olarak görmek için kullanılmıştır.
+
+`msp430-nm -n` komutu ise sembolleri adres sırasına göre listeleyerek linker tarafından oluşturulan `__data_start`, `__bss_start`, `__stack`, `__vectors_start` ve `_vectors_end` gibi önemli sembollerin konumlarını doğrulamak için kullanılmıştır.
+
+## Section Placement Analizi
+
+Linker, firmware içerisindeki farklı section’ları hedef platformun bellek düzenine göre belirli adreslere yerleştirir. `new-firmware.z1` dosyası için elde edilen section yerleşimi aşağıdaki gibidir:
+
+| Section | Başlangıç Adresi | Boyut | Bellek Karşılığı | Açıklama |
+|---|---:|---:|---|---|
+| `.text` | `0x3100` | `0x976e` | Flash | Ana çalıştırılabilir kod bölümü |
+| `.far.text` | `0x10000` | `0x4a78` | Genişletilmiş Flash alanı | MSP430 genişletilmiş adres alanındaki kod bölümü |
+| `.rodata` | `0xc870` | `0x35fd` | Flash | Sabit stringler ve değişmeyen veriler |
+| `.data` | `0x1100` | `0x0150` | RAM | Başlangıç değeri olan global/statik değişkenler |
+| `.bss` | `0x1250` | `0x1648` | RAM | Başlangıçta sıfırlanan global/statik değişken alanı |
+| `.noinit` | `0x2898` | `0x0002` | RAM | Reset sonrası sıfırlanmayan küçük alan |
+| `.vectors` | `0xffc0` | `0x0040` | Flash / Vector alanı | Kesme ve reset vektörleri |
+
+Bu tablo, firmware dosyasının rastgele bir byte dizisi olmadığını; linker tarafından belirli bellek adreslerine göre düzenlenmiş çalıştırılabilir bir ELF imajı olduğunu göstermektedir.
+
+## VMA ve LMA Yorumu
+
+`msp430-objdump -h` çıktısında section’lar için VMA ve LMA adresleri görülmektedir. VMA, bölümün program çalışırken kullanacağı sanal/çalışma adresini; LMA ise bölümün dosyada veya yükleme sırasında bulunduğu fiziksel/yükleme adresini ifade eder.
+
+Örneğin `.data` bölümü için VMA adresi `0x1100`, LMA adresi ise `0xfe6e` olarak görülmektedir. Bu durum `.data` bölümünün başlangıç değerlerinin Flash tarafında tutulduğunu, program çalışırken ise RAM’de `0x1100` adresine kopyalandığını gösterir.
+
+`.bss` bölümü ise `NOBITS` türündedir. Bu, `.bss` bölümünün dosya içinde gerçek veri olarak yer kaplamadığını; fakat program başlatılırken RAM’de `0x1250` adresinden itibaren alan ayrılıp sıfırlandığını gösterir.
+
+## Program Header ve Segment Yerleşimi
+
+`msp430-readelf -l` çıktısında dosyanın `EXEC` türünde olduğu ve giriş adresinin `0x3100` olduğu görülmektedir. Aynı çıktıda section’ların LOAD segmentleri ile eşleştirildiği görülmüştür:
+
+| Segment | İçerdiği Section |
+|---|---|
+| Segment 00 | `.text` |
+| Segment 01 | `.rodata` |
+| Segment 02 | `.data`, `.bss` |
+| Segment 03 | `.noinit` |
+| Segment 04 | `.vectors` |
+| Segment 05 | `.far.text` |
+
+Bu yerleşim, linker’ın firmware’i çalışma zamanında farklı bellek rollerine göre ayırdığını gösterir. Kod ve sabit veri bölümleri Flash tabanlı segmentlerde yer alırken, `.data`, `.bss` ve `.noinit` gibi çalışma zamanı veri bölümleri RAM tarafına karşılık gelmektedir.
+
+## Linker Script Davranışı
+
+Linker script, derleme sonunda hangi section’ın hangi bellek bölgesine yerleştirileceğini belirleyen yapıdır. MSP430 tabanlı Z1 platformunda çalıştırılabilir kodlar Flash alanına, çalışma sırasında değişecek veriler RAM alanına, kesme vektörleri ise işlemcinin beklediği özel vektör adreslerine yerleştirilir.
+
+Bu analizde `.text` bölümünün `0x3100` adresinden başlaması, uygulama kodunun bu başlangıç adresinden itibaren Flash alanına yerleştirildiğini göstermektedir. `.data` bölümünün `0x1100` adresinde bulunması, başlangıç değerli değişkenlerin çalışma sırasında RAM üzerinde kullanılacağını göstermektedir. `.vectors` bölümünün `0xffc0` adresinde bulunması ise kesme vektörlerinin MSP430 mimarisinin beklediği özel alana yerleştirildiğini gösterir.
+
+## Vector Placement Analizi
+
+`.vectors` bölümü `0xffc0` adresinden başlamakta ve `0x0040` bayt boyutundadır. `msp430-nm -n` çıktısında da `__vectors_start` sembolü `0xffc0`, `_vectors_end` sembolü ise `0x10000` adresinde görülmektedir.
+
+Bu bölüm MSP430 mimarisinde kritik öneme sahiptir. Cihaz resetlendiğinde veya bir donanım kesmesi oluştuğunda işlemci bu vektör tablosundaki adres bilgilerine göre ilgili kesme servis rutinine veya başlangıç koduna dallanır. Bu nedenle `.vectors` bölümünün doğru adrese yerleştirilmesi firmware’in sağlıklı başlayabilmesi ve donanım olaylarına doğru tepki verebilmesi için zorunludur.
+
+## Symbol Resolution Analizi
+
+`msp430-nm -n` çıktısında linker tarafından oluşturulmuş veya adreslenmiş önemli semboller görülmektedir:
+
+| Sembol | Adres | Anlamı |
+|---|---:|---|
+| `__data_start` | `0x1100` | `.data` bölümünün RAM başlangıcı |
+| `__bss_start` | `0x1250` | `.bss` bölümünün RAM başlangıcı |
+| `__bss_end` | `0x2898` | `.bss` bölümünün RAM bitişi |
+| `__stack` | `0x3100` | MSP430 RAM alanının üst sınırına işaret eden stack top sembolü |
+| `main` | `0x313e` | Ana program fonksiyonu |
+| `__data_load_start` | `0xfe6e` | `.data` bölümünün Flash’taki yükleme başlangıcı |
+| `_etext` | `0xfe6e` | Kod/sabit veri alanı sonu ile ilişkili sembol |
+| `__vectors_start` | `0xffc0` | Kesme vektör tablosu başlangıcı |
+| `_vectors_end` | `0x10000` | Kesme vektör tablosu bitişi |
+
+Bu semboller, linker’ın fonksiyonları, veri bölgelerini, stack alanını ve kesme vektörlerini adreslerle eşleştirdiğini göstermektedir. Böylece firmware’in çalışma sırasında hangi bellek bölgelerini kullanacağı daha net anlaşılır.
+
+## Static Library Linkage ve Build Sistemi Yorumu
+
+`file` çıktısında firmware’in `statically linked` olduğu görülmektedir. Bu durum, kullanılan Contiki-NG bileşenlerinin, ağ yığını fonksiyonlarının, sürücülerin ve gerekli kütüphane kodlarının son ELF dosyasının içine dahil edildiğini gösterir.
+
+Gömülü sistemlerde statik bağlama yaygın olarak kullanılır. Çünkü hedef cihazda masaüstü işletim sistemlerindeki gibi dinamik kütüphane yükleme mekanizması bulunmaz. Firmware, çalışması için ihtiyaç duyduğu kod parçalarını kendi içinde taşımak zorundadır.
+
+## Relocation Davranışı
+
+Analiz edilen `new-firmware.z1` dosyası çalıştırılabilir ELF formatındadır. Bu nedenle section’lar nihai bellek adreslerine büyük ölçüde yerleştirilmiş durumdadır. Dosya, bağlanmamış bir object dosyası değil; hedef MSP430 platformunda belirli adreslere oturacak şekilde hazırlanmış son firmware imajıdır.
+
+Bu yüzden `.text`, `.data`, `.bss`, `.rodata` ve `.vectors` bölümleri yalnızca isimlendirilmiş veri blokları değildir. Her biri linker tarafından belirlenen adreslere sahip çalışma zamanı bileşenleridir.
+
+## Genel Değerlendirme
+
+Linker ve build sistemi analizi sonucunda `new-firmware.z1` dosyasının MSP430 bellek düzenine uygun şekilde yerleştirildiği görülmüştür. Çalıştırılabilir kodlar Flash alanına, değişkenler RAM alanına, sabit veriler Flash alanına, kesme vektörleri ise özel vector alanına yerleştirilmiştir.
+
+Bu yapı OTA aktarımı açısından önemlidir. Çünkü firmware dosyası yalnızca ağ üzerinden taşınacak ham bir veri değildir; hedef sistemde belirli bellek adreslerine karşılık gelen section’lardan oluşan çalıştırılabilir bir imajdır. Dolayısıyla firmware güncellemesi yapılırken dosyanın bütünlüğü kadar, doğru bellek yerleşimi de dikkate alınmalıdır.
 
 # 18. Binary Transformation Analizi
 
@@ -732,25 +976,88 @@ Araçlar:
 * `msp430-readelf`
 * `Ve üstteki araçların ARM versiyonları...`
 
----
-
 # 22. Karşılaştırmalı Firmware Analizi
 
-İki firmware arasında:
+Bu bölümde `new-firmware.z1`, `udp-client.z1` ve `udp-server.z1` firmware imajları karşılaştırmalı olarak incelenmiştir. Analizde temel olarak `msp430-size`, `file`, `msp430-readelf`, `msp430-objdump`, `msp430-nm` ve `msp430-strings` çıktılarından yararlanılmıştır. Amaç, farklı görevler için üretilmiş firmware imajlarının kod boyutu, RAM kullanımı, section yapısı, sembol yoğunluğu ve ağ bileşenleri açısından nasıl farklılaştığını yorumlamaktır.
 
-* Code size farkı
-* RAM farkı
-* Function count farkı
-* ISR yoğunluğu
-* Networking complexity
-* Radio stack farkı
-* Symbol farkı
-* Optimization farkı
-* Assembly complexity farkı
+## Karşılaştırılan Firmware Dosyaları
 
+Analizde üç farklı firmware dosyası kullanılmıştır:
 
+| Firmware Dosyası  | Rolü / Kullanım Amacı                                                           |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `new-firmware.z1` | OTA aktarımı kapsamında incelenen/gönderilmesi planlanan yeni firmware imajı |
+| `udp-client.z1`   | UDP/RPL senaryosunda gönderici/client düğüm firmware’i                          |
+| `udp-server.z1`   | UDP/RPL senaryosunda alıcı/server düğüm firmware’i                              |
 
----
+Bu üç dosya da MSP430 mimarisi için üretilmiş ELF32 çalıştırılabilir firmware imajlarıdır. Bu nedenle karşılaştırma yapılırken aynı mimari ve aynı platform ailesi üzerinden değerlendirme yapılmıştır.
+
+## Kod ve Bellek Boyutu Karşılaştırması
+
+`msp430-size` çıktılarından elde edilen değerlere göre firmware dosyalarının boyutları aşağıdaki gibidir:
+
+| Firmware Dosyası  |  text | data |  bss |   dec |   hex |
+| ----------------- | ----: | ---: | ---: | ----: | ----: |
+| `new-firmware.z1` | 71715 |  336 | 5706 | 77757 | 12fbd |
+| `udp-client.z1`   | 42871 |  336 | 5922 | 49129 |  bfe9 |
+| `udp-server.z1`   | 42585 |  336 | 5866 | 48787 |  be93 |
+
+Bu tabloya göre en büyük firmware imajı `new-firmware.z1` dosyasıdır. `new-firmware.z1` dosyasının `text` alanı 71715 bayttır. Bu değer, `udp-client.z1` ve `udp-server.z1` dosyalarına göre belirgin şekilde daha büyüktür. Bu durum `new-firmware.z1` içerisinde daha fazla çalıştırılabilir kod, sabit veri veya ek kütüphane bileşeni bulunduğunu göstermektedir.
+
+`udp-client.z1` ve `udp-server.z1` dosyalarının `text` boyutları birbirine oldukça yakındır. `udp-client.z1` için `text` değeri 42871 bayt, `udp-server.z1` için ise 42585 bayttır. Aradaki fark oldukça küçüktür. Bunun nedeni iki firmware’in aynı Contiki-NG altyapısını, aynı MSP430 platform desteğini ve benzer ağ bileşenlerini kullanmasıdır.
+
+## Flash Kullanımı Karşılaştırması
+
+`text` alanı ağırlıklı olarak Flash bellekte yer kaplayan çalıştırılabilir kod ve sabit verileri temsil eder. Bu açıdan bakıldığında Flash kullanımı en yüksek olan dosya `new-firmware.z1` dosyasıdır.
+
+`new-firmware.z1` dosyasının `text` boyutunun daha büyük olması, OTA aktarımı açısından önemlidir. Çünkü gönderilecek firmware imajı büyüdükçe ağ üzerinden aktarılması gereken veri miktarı artar. Bu nedenle `new-firmware.z1` dosyasının tek parça halinde değil, bloklara ayrılarak gönderilmesi daha uygun bir yaklaşımdır.
+
+## RAM Kullanımı Karşılaştırması
+
+`data` ve `bss` alanları çalışma zamanı RAM kullanımı açısından önemlidir. Üç firmware dosyasında da `data` alanı 336 bayttır. Bu durum, başlangıç değeri olan global/statik değişken miktarının üç firmware’de de aynı veya çok benzer olduğunu gösterir.
+
+`bss` alanları ise şu şekildedir:
+
+| Firmware Dosyası  |  bss |
+| ----------------- | ---: |
+| `new-firmware.z1` | 5706 |
+| `udp-client.z1`   | 5922 |
+| `udp-server.z1`   | 5866 |
+
+Bu değerlere göre `udp-client.z1` dosyasının `bss` alanı diğerlerine göre biraz daha büyüktür. `bss` alanı, başlangıçta sıfırlanan global ve statik değişkenler için RAM’de ayrılan bölgedir. Bu fark, client firmware’in çalışma zamanında biraz daha fazla sıfırlanmış RAM alanı kullandığını gösterebilir.
+
+## Section Yapısı Karşılaştırması
+
+Üç firmware dosyası da ELF formatında olduğundan benzer section yapısına sahiptir. Temel olarak `.text`, `.data`, `.bss`, `.rodata` ve `.vectors` gibi bölümler bulunmaktadır.
+
+Bu section yapısı, dosyaların ham binary olmadığını; belirli bellek bölgelerine yerleşmek üzere linker tarafından hazırlanmış çalıştırılabilir firmware imajları olduğunu gösterir. Özellikle `.vectors` bölümünün bulunması, firmware dosyalarının donanım kesmeleri ve reset davranışıyla ilişkili gerçek gömülü sistem imajları olduğunu kanıtlar.
+
+## Sembol ve Fonksiyon Yoğunluğu Yorumu
+
+`msp430-nm` ve `msp430-readelf -s` çıktıları, firmware dosyalarının sembol tablosu içerdiğini göstermektedir. Bu semboller sayesinde fonksiyonlar, global değişkenler, Contiki-NG process yapıları, ağ bileşenleri ve donanım sürücüleri incelenebilmektedir.
+
+`new-firmware.z1` dosyasının daha büyük `text` alanına sahip olması, içerisinde daha fazla fonksiyon veya daha büyük kod blokları bulunduğunu düşündürmektedir. `udp-client.z1` ve `udp-server.z1` ise aynı uygulama ailesine ait oldukları için daha yakın sembol ve fonksiyon yoğunluğuna sahiptir.
+
+## Networking Complexity Karşılaştırması
+
+`udp-client.z1` ve `udp-server.z1` dosyaları RPL/UDP haberleşme senaryosunda farklı roller üstlenmektedir. Client firmware gönderici düğüm olarak, server firmware ise alıcı düğüm olarak çalışmaktadır. Buna rağmen iki firmware’in boyutlarının birbirine yakın olması, ağ yığını ve Contiki-NG altyapısının büyük kısmının iki imajda da ortak olduğunu göstermektedir.
+
+Bu ortak altyapı içinde uIP/IPv6, RPL yönlendirme, 6LoWPAN adaptasyon katmanı, packetbuf yapısı ve CSMA MAC bileşenleri bulunmaktadır. Uygulama seviyesindeki client/server farkı ise toplam firmware boyutuna göre sınırlı bir fark oluşturmaktadır.
+
+## Optimization ve Debug Bilgisi Yorumu
+
+`file` çıktılarında firmware dosyalarının `with debug_info, not stripped` şeklinde görülmesi, dosyaların debug ve sembol bilgilerini içerdiğini göstermektedir. Bu durum analiz açısından avantaj sağlar; çünkü fonksiyon adları, debug bölümleri ve kaynak kodla ilişkilendirilebilecek bilgiler korunmuştur.
+
+Eğer firmware dosyaları strip edilmiş olsaydı, sembol tablosu ve debug bilgileri büyük ölçüde kaldırılmış olurdu. Bu durumda karşılaştırmalı analiz yapmak daha zor olurdu.
+
+## Genel Değerlendirme
+
+Karşılaştırmalı analiz sonucunda `new-firmware.z1` dosyasının en büyük firmware imajı olduğu görülmüştür. Bu dosya OTA aktarımı kapsamında taşınacak yeni firmware olarak değerlendirildiğinde, boyutunun büyük olması nedeniyle bloklara ayrılarak gönderilmesi gereklidir.
+
+`udp-client.z1` ve `udp-server.z1` dosyaları ise birbirine yakın boyutlardadır. Bu durum, iki firmware’in aynı Contiki-NG ve MSP430 altyapısını kullandığını; farkın daha çok uygulama seviyesindeki client/server davranışından kaynaklandığını göstermektedir.
+
+Sonuç olarak üç firmware dosyası da MSP430 mimarisi için hazırlanmış ELF32 çalıştırılabilir imajlardır. Ancak kullanım rolleri ve kod boyutları farklıdır. Bu farklar, OTA aktarımı, bellek planlaması ve firmware güncelleme stratejisi açısından dikkate alınmalıdır.
+
 
 # 23. Eğitimsel Reverse Engineering Görevleri
 
