@@ -1,15 +1,14 @@
-# MSP430 `.z1` / `.sky` / `ARM M4F(CC1352R)` / `cooja-native` Platformları için Üretilmiş Firmware’ler Üzerinde Yapılabilecek Analiz Türleri Kontrol Listesi
 
----
-##### (* ARM Mimarisinde derlenmiş firmware analizi yapmak isteyen gruplar MSP430 Toolchain yanında ARM-Toolchain araçlarını da indirip, kullanmalıdırlar.)
+## Proje Raporu Katkı ve İş Bölümü
 
-``` bash
-  $ wget https://armkeil.blob.core.windows.net/developer/Files/downloads/gnu-rm/9-2020q2/gcc-arm-none-eabi-9-2020-q2-update-x86_64-linux.tar.bz2
-  $ tar -xjf gcc-arm-none-eabi-9-2020-q2-update-x86_64-linux.tar.bz2
-```
----
-##### ** Analiz etmeniz için farklı platformlarda oluşturulmuş örnek firmware arşivi bil.omu drive linki için [tıklayınız](https://drive.google.com/file/d/1oLrZWPmDyuznWe5qS7zOsfSyyyPcQbBG/view?usp=sharing) .
+Bu çalışmada MSP430 tabanlı `.z1` firmware imajları üzerinde statik analiz yapılmıştır. Analiz sürecinde `file`, `msp430-readelf`, `msp430-objdump`, `msp430-nm`, `msp430-size` ve `msp430-strings` gibi MSP430 araç zinciri komutları kullanılmıştır. Komut çıktıları yalnızca rapora eklenmemiş; aynı zamanda bu çıktıların ne anlama geldiği, firmware imajlarının bellek yerleşimi ve çalışma rolü açısından yorumlanmıştır.
 
+| Öğrenci            | Yapılan Bölümler                                                                                                                                               | Katkı Açıklaması                                                                                                                                                                                                                                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Furkan Elidolu** | 1. Binary Kimlik Analizi<br>2. Bellek Kullanım Analizi<br>7. ELF Yapısı Analizi<br>17. Linker ve Build Sistemi Analizi<br>22. Karşılaştırmalı Firmware Analizi | Firmware dosyalarının ELF kimliği, hedef mimarisi, giriş adresi, bellek kullanımı, section yapısı, linker yerleşimi ve farklı firmware imajları arasındaki boyut/rol karşılaştırması analiz edilmiştir. Kod, veri, Flash/RAM kullanımı ve section yerleşimleri yorumlanarak firmware’in yapısal özellikleri açıklanmıştır. |
+| **Furkan Küçük**   | 3. Symbol / Function Analizi<br>4. String ve Metadata Analizi<br>5. Assembly / Instruction Analizi<br>9. Networking Analizi<br>20. Contiki-NG Özel Analizler   | Firmware içerisindeki semboller, fonksiyonlar, global değişkenler, string/metadata bilgileri, assembly çıktıları, ağ protokol izleri ve Contiki-NG’ye özgü process, protothread, timer ve network stack yapıları analiz edilmiştir. Firmware’in çalışma davranışı ve ağ üzerindeki rolü yorumlanmıştır.                    |
+
+Bu görev dağılımı ile raporda hem firmware dosyalarının ELF/bellek yapısı hem de sembol, assembly, networking ve Contiki-NG davranışı birlikte ele alınmıştır. Böylece çalışma yalnızca komut çıktılarından oluşmamış; araç zinciri çıktılarının teknik anlamı ve firmware imajlarının gömülü sistem açısından rolü açıklanmıştır.
 
 ---
 
@@ -435,24 +434,6 @@ Benzer bir şartlı dallanma (Branching) durumu ISR içerisinde de görülmekted
 ```
 Burada `r15` register'ındaki değer sıfır ise `jz` (Jump if Zero) komutu tetiklenmekte ve CPU kod bloğunda 102 byte ileriye (`0x35be` adresine) atlayarak bir karar döngüsünü (Loop) tamamlamaktadır. Bu yapı, C dilindeki `while()` veya `if()` bloklarının makine koduna dönüşmüş (expanded) halidir.
 
----
-
-# 6. Source-Level Mapping Analizi
-
-(Debug build varsa)
-
-* Address → source line eşleme
-* Function → source file eşleme
-* ISR → source mapping
-* Crash address çözümleme
-* Optimization sonrası source mapping
-* Inline edilmiş kodların tespiti
-
-Araçlar:
-
-* `msp430-addr2line`
-* `msp430-objdump -S`
-* `Ve üstteki araçların ARM versiyonları...`
 
 # 7. ELF Yapısı Analizi
 
@@ -525,26 +506,6 @@ ELF yapısı analizi sonucunda `new-firmware.z1` dosyasının yalnızca ham maki
 
 Bu yapı, firmware’in hedef MSP430 sisteminde hangi bellek bölgelerine yerleşeceğini ve çalışırken hangi bölümlerin Flash/RAM üzerinde kullanılacağını anlamayı sağlar. OTA aktarımı açısından bu bilgi önemlidir; çünkü taşınan dosya yalnızca byte dizisi değil, belirli bir mimari ve bellek düzeni için hazırlanmış çalıştırılabilir bir firmware imajıdır.
 
-# 8. Interrupt ve Donanım Analizi
-
-* Interrupt vector table
-* GPIO access pattern
-* Timer interrupt kullanımı
-* UART ISR
-* Radio interrupt handler
-* ADC access
-* Sensor polling
-* Low-power mode geçişleri
-* Clock configuration
-* MSP430 register erişimleri
-
-Araçlar:
-
-* `msp430-objdump`
-* `msp430-readelf`
-* `Ve üstteki araçların ARM versiyonları...`
-
----
 
 # 9. Networking Analizi
 
@@ -605,155 +566,6 @@ Sistemin uygulama katmanı ile ağ yığını arasındaki iletişim, Contiki'nin
 | MAC ve Çarpışma | csma_driver, csma_output_packet| TSCH yerine, fırsatçı kanal dinleme mantığına dayanan CSMA MAC protokolü aktiftir. |
 | Bellek Yönetimi | packetbuf_copyfrom, packetbuf_hdralloc | Paketler için dinamik bellek yerine statik packetbuf mimarisi kullanılmaktadır. |
 
-
----
-
-# 10. Wireless / TSCH Analizi
-
-* TSCH slot operation
-* Channel hopping logic
-* ASN handling
-* Radio timing loops
-* Synchronization routines
-* Schedule management
-* Packet timing
-* MAC timing critical path
-* Drift compensation
-* Low-power radio behavior
-
-Araçlar:
-
-* `msp430-objdump`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
-
----
-
-# 11. Sensor ve Peripheral Analizi
-
-* Button handler
-* LED driver
-* UART usage
-* SPI access
-* I2C access
-* ADC routines
-* Sensor polling interval
-* Interrupt-driven sensor logic
-* GPIO toggle behavior
-* Peripheral initialization sequence
-
-Araçlar:
-
-* `msp430-objdump`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
-
----
-
-# 12. Algoritma Koşma / DSP / Matematiksel Analiz
-
-* Floating-point kullanımı
-* Fixed-point kullanımı
-* Trigonometric computation
-* Multiply/divide routines
-* Software floating-point emulation
-* DSP benzeri loop’lar
-* Matrix operation izleri
-* Signal processing pattern’leri
-* Computational hotspot’lar
-* Numerical optimization
-
-Araçlar:
-
-* `msp430-objdump`
-* `msp430-gprof`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
-
----
-
-# 13. Güç ve Performans Analizi
-
-* Low-power mode geçişleri
-* CPU-intensive function’lar
-* Busy-wait detection
-* Sleep/wakeup flow
-* Timer usage intensity
-* Radio duty cycle tahmini
-* ISR yoğunluğu
-* Function execution cost
-* Flash/RAM efficiency
-* Energy-heavy computation bölgeleri
-
-Araçlar:
-
-* `msp430-gprof`
-* `msp430-objdump`
-* `msp430-size`
-* `Ve üstteki araçların ARM versiyonları...`
-
----
-
-# 14. Coverage ve Profiling Analizi
-
-* Function call frequency
-* Execution hotspot
-* Unused branch’ler
-* Rarely executed path’ler
-* Test coverage
-* Critical execution path
-* Runtime bottleneck’ler
-
-Araçlar:
-
-* `msp430-gcov`
-* `msp430-gprof`
-* `Ve üstteki araçların ARM versiyonları...`
-
----
-
-# 15. Reverse Engineering Analizi
-
-* Firmware behavior recovery
-* Unknown firmware classification
-* Feature inference
-* Protocol inference
-* ISR purpose discovery
-* Hardware interaction recovery
-* State machine extraction
-* Scheduler reconstruction
-* Event-flow reconstruction
-* Network role inference
-
-Araçlar:
-
-* `msp430-objdump`
-* `msp430-nm`
-* `msp430-readelf`
-* `msp430-strings`
-* `Ve üstteki araçların ARM versiyonları...`
-
----
-
-# 16. Compiler ve Optimization Analizi
-
-* `-O0/-O2/-Os` farkları
-* Inlining behavior
-* Dead code elimination
-* Constant folding
-* Loop optimization
-* Register allocation
-* Tail-call optimization
-* Branch optimization
-* Macro expansion
-* Preprocessor etkileri
-
-Araçlar:
-
-* `msp430-gcc`
-* `msp430-cpp`
-* `msp430-objdump`
-* `Ve üstteki araçların ARM versiyonları...`
 
 # 17. Linker ve Build Sistemi Analizi
 
@@ -856,39 +668,6 @@ Linker ve build sistemi analizi sonucunda `new-firmware.z1` dosyasının MSP430 
 
 Bu yapı OTA aktarımı açısından önemlidir. Çünkü firmware dosyası yalnızca ağ üzerinden taşınacak ham bir veri değildir; hedef sistemde belirli bellek adreslerine karşılık gelen section’lardan oluşan çalıştırılabilir bir imajdır. Dolayısıyla firmware güncellemesi yapılırken dosyanın bütünlüğü kadar, doğru bellek yerleşimi de dikkate alınmalıdır.
 
-# 18. Binary Transformation Analizi
-
-* ELF → HEX conversion
-* ELF → binary conversion
-* Section extraction
-* Symbol stripping
-* Debug removal
-* Firmware minimization
-* Binary patch preparation
-
-Araçlar:
-
-* `msp430-objcopy`
-* `msp430-strip`
-* `Ve üstteki araçların ARM versiyonları...`
-
----
-
-# 19. Library ve Archive Analizi
-
-* Static library içeriği
-* Object file extraction
-* Archive symbol table
-* Linked module analizi
-
-Araçlar:
-
-* `msp430-ar`
-* `msp430-gcc-ar`
-* `msp430-ranlib`
-* `Ve üstteki araçların ARM versiyonları...`
-
----
 
 # 20. Contiki-NG Özel Analizler
 
@@ -956,25 +735,6 @@ Yapılan kapsamlı String ve Sembol analizlerinde, Contiki'nin eski ve hafif hab
 | Donanım-Ağ Etkileşimi | tcpip_event, netstack_init | Radyo çipinden gelen kesmelerin işletim sistemine asenkron bir sinyal (tcpip_event) olarak aktarılması süreci. |
 
 
----
-
-# 21. Güvenlik ve Robustness Analizi
-
-* Hardcoded credential arama
-* Debug backdoor izleri
-* Buffer handling
-* Unsafe memory access
-* Stack-heavy routines
-* Potential overflow bölgeleri
-* Assert/debug remnants
-* Information leakage string’leri
-
-Araçlar:
-
-* `msp430-strings`
-* `msp430-objdump`
-* `msp430-readelf`
-* `Ve üstteki araçların ARM versiyonları...`
 
 # 22. Karşılaştırmalı Firmware Analizi
 
@@ -1058,17 +818,3 @@ Karşılaştırmalı analiz sonucunda `new-firmware.z1` dosyasının en büyük 
 
 Sonuç olarak üç firmware dosyası da MSP430 mimarisi için hazırlanmış ELF32 çalıştırılabilir imajlardır. Ancak kullanım rolleri ve kod boyutları farklıdır. Bu farklar, OTA aktarımı, bellek planlaması ve firmware güncelleme stratejisi açısından dikkate alınmalıdır.
 
-
-# 23. Eğitimsel Reverse Engineering Görevleri
-
-* Bir firmware’in ne yaptığını bulma
-* hangi protokolü kullandığını çıkarma
-* button/LED mapping bulma
-* ISR’leri tanıma
-* network role çıkarımı
-* Kullandığı algoritmik blok tespiti
-* energy-heavy bölgeleri bulma
-* stripped firmware çözümleme
-
-
----
